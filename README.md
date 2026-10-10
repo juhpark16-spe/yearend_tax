@@ -119,13 +119,15 @@ yearend_tax/
 │   ├── tax_engine/             # 2025 순수 Python 세액 계산 엔진 (결정론적)
 │   │   └── calculator.py       # 산출세액 및 공제한도 공식 연산
 │   ├── rag/                    # 국세청 가이드 RAG 검색 모듈
+│   │   ├── explainer.py        # RAG 기반 세무 해설 엔진 (TaxExplainer)
 │   │   ├── retriever.py        # 벡터 검색 및 원문 인용기
 │   │   ├── vector_store.py     # FAISS 벡터 스토어 관리자
 │   │   ├── loader.py           # 마크다운 세법 문서 로더
-│   │   └── splitter.py         # 세법 조항 분할기
+│   │   ├── splitter.py         # 세법 조항 분할기
+│   │   └── prompt.py           # 세무 해설 시스템 프롬프트
 │   ├── audit/                  # 계산 단계별 근거 및 감사 추적기
 │   │   └── logger.py
-│   ├── report/                 # 결과지 PDF 리포트 생성기
+│   ├── report/                 # 결과지 PDF 리포트 생성기 (스켈레톤 / 추후 지원)
 │   │   └── pdf_generator.py
 │   └── main.py                 # FastAPI 애플리케이션 엔트리포인트
 ├── frontend/                   # React + Vite + Tailwind CSS 프론트엔드
@@ -157,7 +159,7 @@ yearend_tax/
 │   │   │   ├── TaxTipsPage.jsx       # 맞춤형 절세 팁 가이드
 │   │   │   ├── RequiredDocsPage.jsx  # 필요 서류 안내
 │   │   │   ├── UserGuidePage.jsx     # 서비스 이용 가이드
-│   │   │   ├── CompanyPage.jsx       # 회사용 제출자료 생성
+│   │   │   ├── CompanyPage.jsx       # 정산봄 서비스 소개 및 회사 안내
 │   │   │   └── TaxWizardPage.jsx     # 연말정산 시작 가이드
 │   │   ├── context/            # 전역 상태 관리
 │   │   │   └── AuthContext.jsx       # 로그인/게스트 인증 컨텍스트
@@ -199,7 +201,7 @@ yearend_tax/
 │   └── conftest.py             # 테스트 픽스처
 ├── alembic/                    # DB 스키마 마이그레이션
 ├── alembic.ini
-├── selftax.db                  # 로컬 SQLite 데이터베이스
+├── selftax.db                  # 로컬 SQLite 데이터베이스 (서버 실행 시 자동 생성)
 ├── .env                        # 환경 변수 (로컬)
 ├── .env.example                # 환경 변수 템플릿
 ├── requirements.txt            # 백엔드 파이썬 의존성 패키지 목록
