@@ -220,15 +220,23 @@ yearend_tax/
 
 ## 7. 핵심 REST API 명세 (Core REST APIs)
 
-| HTTP Method | 엔드포인트 URI | 기능 설명 |
-| :---: | :--- | :--- |
-| `POST` | `/api/v1/sessions` | 신규 연말정산 세션 생성 및 초기화 |
-| `POST` | `/api/v1/upload/pdf` | 홈택스 간소화 / 원천징수영수증 PDF 업로드 및 파싱 |
-| `POST` | `/api/v1/calculate` | 2025 귀속 세액 계산 및 단계별 감사 로그 생성 |
-| `POST` | `/api/v1/validate` | 부양가족 나이·소득 요건 판정 및 중복공제 검증 |
-| `GET`  | `/api/v1/audit/{session_id}` | "왜 이 금액인가요?" 7단계 계산 근거 및 법조문 조회 |
-| `POST` | `/api/v1/rag/query` | 국세청 공식 가이드라인 기반 세법 규정 및 절세 요건 질의 |
-| `GET`  | `/api/v1/report/pdf/{session_id}` | 회사 제출용 최종 결과지 PDF 생성 및 다운로드 |
+> 모든 엔드포인트는 접두사 `/api/v1`을 사용하며, 클라이언트 호환성을 위한 `/api/v1/tax/*` 별칭(Alias) 라우팅도 함께 지원합니다.  
+> 대화형 API 문서는 서버 구동 후 **Swagger UI**(`http://localhost:8000/docs`)에서 직접 테스트할 수 있습니다.
+
+| 분류 | HTTP Method | 엔드포인트 URI | 기능 설명 |
+| :--- | :---: | :--- | :--- |
+| **세션 관리** | `POST` | `/api/v1/sessions` | 신규 연말정산 세션 발급 및 중기청년/신혼부부 플래그 설정 |
+| | `GET` | `/api/v1/sessions/{session_id}` | 세션 진행 상태 및 사용자 정보 조회 |
+| **문서 처리** | `POST` | `/api/v1/upload` | 다중 PDF 업로드 (최대 20MB), 인메모리 PII 마스킹 및 4종 자동 분류 |
+| | `POST` | `/api/v1/ocr` | PDF 텍스트 추출 및 문서 엔티티 분석/분류 (HOMETAX, WITHHOLDING 등) |
+| **적격성 검증** | `POST` | `/api/v1/validate` | 부양가족 나이·소득 요건(100만원 이하) 판정 및 중도이직 근무지 합산 검증 |
+| **세액 계산** | `POST` | `/api/v1/calculate` | 2025 귀속 세액 정밀 계산 및 7단계 Audit Log(감사 로그) DB 영속화 |
+| **결과 & 감사** | `GET` | `/api/v1/result/{identifier}` | 최종 결정세액, 환급/추징세액, 소득·세액공제 종합 상세 조회 |
+| | `GET` | `/api/v1/audit/{identifier}` | "왜 이 금액인가요?" 7단계 연산 과정, 법정 수식 및 국세청 근거 조항 조회 |
+| **RAG & AI** | `POST` | `/api/v1/rag/search` | 국세청 연말정산 신고안내서 기반 벡터 검색 및 출처 페이지 명시 해설 |
+| | `POST` | `/api/v1/rag/explain` | Tax Engine 연산 결과와 국세청 가이드를 결합한 AI 맞춤형 설명(DTO) 생성 |
+| **진단 & 보고서** | `POST` | `/api/v1/checklist` | 월세, 실손보험, 혼인공제 등 공제 누락/과다공제 방지 자가진단 질문 리스트 |
+| | `GET` | `/api/v1/report/pdf/{session_id}` | 회사 제출용 최종 연말정산 결과지 PDF 스트림 다운로드 |
 
 ---
 
