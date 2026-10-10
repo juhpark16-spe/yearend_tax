@@ -16,7 +16,48 @@
 
 ---
 
-## 2. 전체 프로젝트 폴더 구조
+## 2. 주요 핵심 기능 (Key Features)
+
+* **스마트 PDF 간소화자료 자동 분석**: 국세청 간소화자료 및 근로소득원천징수영수증 PDF 원클릭 업로드 & 지능형 파싱 (다양한 전자서식 완벽 지원)
+* **2025년 귀속 개정 세법 전격 반영**:
+  - **자녀세액공제 대폭 확대**: 1명 25만 원 / 2명 55만 원 / 3명 이상 `55만 원 + (2명 초과 1명당 40만 원)`
+  - **문화비 소득공제 대상 확대**: 수영장·헬스장 등 체육시설 이용료(30%) 신설 반영
+  - **혼인세액공제 신설**: 2024~2026년 중 혼인신고 시 생애 1회 50만 원 세액공제
+  - **출산 및 입양 세액공제**: 첫째 30만 원, 둘째 50만 원, 셋째 이상 70만 원
+  - **소기업·소상공인 노란우산공제**: 사업소득 및 법인대표자 근로소득 구간별 공제한도 세분화
+* **실시간 세액 시뮬레이션 (13개 인터랙티브 화면)**: 부양가족, 종전근무지, 수기 영수증 입력에 따른 실시간 환급액 변화 즉시 연산
+* **"왜 이 금액인가요?" 투명한 감사 추적 (Audit Trail)**: 7단계 세액 도출 과정과 국세청 세법 조항 근거 명시
+* **AI 맞춤형 절세 리포트**: 공제 누락 위험 항목 진단 및 다음 연도 절세 전략 제공
+* **집중을 돕는 로우파이 배경음악 (BGM Player)**: 복잡한 세무 자료 입력 중 집중력을 유지해 주는 BGM 플레이어 탑재
+
+---
+
+## 3. 시스템 아키텍처 및 데이터 흐름 (Architecture Flow)
+
+```mermaid
+flowchart LR
+    A[홈택스 PDF / 영수증 업로드] --> B[인메모리 PII 마스킹\n주민번호 뒷자리 즉시 치환]
+    B --> C[규칙 엔진 RuleEngine\n부양가족/중복공제 적격 검증]
+    C --> D[순수 Python 세액 엔진\n결정론적 법정수식 연산]
+    D --> E[감사 추적기 Audit Logger\n단계별 계산 근거 기록]
+    E --> F[실시간 환급액 시뮬레이션\n& AI 설명형 리포트 도출]
+```
+
+---
+
+## 4. 기술 스택 (Tech Stack)
+
+| 구분 | 주요 기술 및 라이브러리 |
+| :--- | :--- |
+| **Backend** | `FastAPI`, `Python 3.12`, `SQLAlchemy 2.0`, `Pydantic v2`, `SQLite / PostgreSQL`, `Alembic` |
+| **Frontend** | `React 18`, `Vite 5`, `Tailwind CSS`, `Lucide React`, `Supabase Auth`, `React.lazy (코드 분할)` |
+| **AI & RAG** | `LangChain`, `FAISS Vector Store`, `국세청 연말정산 공식 가이드라인 RAG`, `GPT-4o (설명 생성용)` |
+| **Security** | `In-Memory PII Masker`, `JWT Exp & IDOR Guard`, `Client-Side Recursive PII Sanitization` |
+| **Testing** | `Pytest` (단위/통합 테스트 74개 100% 통과) |
+
+---
+
+## 5. 전체 프로젝트 폴더 구조
 
 ```text
 yearend_tax/
@@ -56,7 +97,7 @@ yearend_tax/
 │   │   ├── classifier.py       # 업로드 문서 유형 분류기
 │   │   └── pii_masker.py       # 주민등록번호/주소 마스킹 엔진
 │   ├── security/               # 인증/인가 및 개인정보 보호
-│   │   ├── auth.py             # Supabase JWT 인증 및 세션 검증
+│   │   ├── auth.py             # Supabase JWT 인증, 토큰 만료 및 IDOR 방어 가드
 │   │   └── pii_mask.py         # 민감정보 정규식 마스킹
 │   ├── services/               # 비즈니스 로직 서비스 계층
 │   │   ├── tax_calculation_service.py # 세액 계산 통합 서비스
@@ -78,7 +119,10 @@ yearend_tax/
 │   ├── tax_engine/             # 2025 순수 Python 세액 계산 엔진 (결정론적)
 │   │   └── calculator.py       # 산출세액 및 공제한도 공식 연산
 │   ├── rag/                    # 국세청 가이드 RAG 검색 모듈
-│   │   └── retriever.py        # 벡터 검색 및 원문 인용기
+│   │   ├── retriever.py        # 벡터 검색 및 원문 인용기
+│   │   ├── vector_store.py     # FAISS 벡터 스토어 관리자
+│   │   ├── loader.py           # 마크다운 세법 문서 로더
+│   │   └── splitter.py         # 세법 조항 분할기
 │   ├── audit/                  # 계산 단계별 근거 및 감사 추적기
 │   │   └── logger.py
 │   ├── report/                 # 결과지 PDF 리포트 생성기
@@ -89,8 +133,9 @@ yearend_tax/
 │   │   ├── assets/             # 일러스트/아이콘 정적 이미지
 │   │   └── bgm.mp3             # 집중 배경음악 음원
 │   ├── src/
-│   │   ├── assets/
 │   │   ├── components/         # 재사용 UI 컴포넌트
+│   │   │   ├── godash/               # 인트로 및 메인 대시보드
+│   │   │   ├── tax_sections/         # 12개 공제 항목별 세부 폼
 │   │   │   ├── BgmPlayer.jsx         # 배경음악 재생 컨트롤러
 │   │   │   ├── UploadZone.jsx        # Drag & Drop PDF 업로더
 │   │   │   ├── UploadProgressBar.jsx # 파일 업로드 진행 표시줄
@@ -100,7 +145,7 @@ yearend_tax/
 │   │   │   ├── DesignAlertModal.jsx  # 커스텀 알림/확인 모달
 │   │   │   ├── AuditTrailTimeline.jsx# 감사 추적 인터랙티브 타임라인
 │   │   │   └── UserAuthStatus.jsx    # 로그인/게스트 상태 표시
-│   │   ├── pages/              # 주요 화면 (13개 페이지)
+│   │   ├── pages/              # 주요 화면 (13개 전체 페이지, React.lazy 적용)
 │   │   │   ├── HometaxPage.jsx       # 국세청 간소화자료 업로드
 │   │   │   ├── WithholdingPage.jsx   # 원천징수영수증 업로드
 │   │   │   ├── PreviousJobPage.jsx   # 종전 근무지 입력/관리
@@ -120,7 +165,7 @@ yearend_tax/
 │   │   │   └── api.js                # Axios REST API 클라이언트
 │   │   ├── utils/              # 유틸리티 함수 및 스토리지
 │   │   │   ├── taxCalculator.js      # 프론트엔드 실시간 세액 계산 엔진
-│   │   │   ├── secureStorage.js      # 암호화 로컬 스토리지
+│   │   │   ├── secureStorage.js      # PII 재귀 마스킹 및 암호화 로컬 스토리지
 │   │   │   ├── userTaxStorage.js     # 사용자별 세무 데이터 관리자
 │   │   │   ├── guestStorage.js       # 게스트 모드 로컬 세션 스토리지
 │   │   │   ├── pensionLimit.js       # 연금계좌 한도 계산 유틸
@@ -131,7 +176,7 @@ yearend_tax/
 │   │   ├── index.css           # 글로벌 스타일 (Tailwind CSS)
 │   │   └── main.jsx
 │   ├── index.html
-│   ├── vite.config.js          # Vite 설정 및 API 프록시
+│   ├── vite.config.js          # Vite 설정 및 청크 분할(manualChunks) 최적화
 │   ├── tailwind.config.js
 │   ├── postcss.config.js
 │   └── package.json            # 프론트엔드 패키지 의존성
@@ -140,7 +185,7 @@ yearend_tax/
 │       ├── tax_rates.py        # 2025년 기본세율, 누진공제, 한도액 정의
 │       └── __init__.py
 ├── rag_data/                   # 국세청 공식 가이드라인 원본 PDF 및 Vector DB
-├── tests/                      # Pytest 테스트 스위트
+├── tests/                      # Pytest 테스트 스위트 (74개 통과)
 │   ├── unit/                   # 단위 테스트
 │   │   ├── test_tax_engine.py          # 세액 계산 엔진 단위 테스트
 │   │   ├── test_rule_engine.py         # 규칙 검증 엔진 단위 테스트
@@ -154,6 +199,7 @@ yearend_tax/
 │   └── conftest.py             # 테스트 픽스처
 ├── alembic/                    # DB 스키마 마이그레이션
 ├── alembic.ini
+├── selftax.db                  # 로컬 SQLite 데이터베이스
 ├── .env                        # 환경 변수 (로컬)
 ├── .env.example                # 환경 변수 템플릿
 ├── requirements.txt            # 백엔드 파이썬 의존성 패키지 목록
@@ -162,9 +208,33 @@ yearend_tax/
 
 ---
 
-## 3. 개발 환경 설정 및 실행 방법
+## 6. 보안 및 개인정보 보호 원칙 (Security & Compliance)
 
-### 3.1 Backend (FastAPI)
+* **Zero-Plaintext RRN 원칙**: 업로드 직후 인메모리에서 주민등록번호 뒷자리를 마스킹(`900101-1******`)하며, DB 및 브라우저 스토리지 어디에도 원본 주민등록번호를 평문으로 보관하지 않습니다.
+* **수식 연산 결정론화 (Zero-Hallucination)**: 세액 계산 자체에는 LLM을 일절 사용하지 않아 AI의 수식 왜곡 및 할루시네이션 위험을 원천 차단합니다.
+* **환경 인지형 IDOR(BOLA) 방어**: 프로덕션 모드(`ENVIRONMENT=production`)에서 헤더 위조를 차단하여 타인의 세무 데이터 접근을 완벽 격리합니다.
+* **클라이언트 PII 재귀 살균**: `deepSanitizeSensitiveData`를 통해 브라우저 로컬 저장소 저장 직전 모든 객체 트리의 주민번호 및 식별번호를 자동 마스킹합니다.
+* **안전한 HTTP 보안 헤더 탑재**: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin` 적용.
+
+---
+
+## 7. 핵심 REST API 명세 (Core REST APIs)
+
+| HTTP Method | 엔드포인트 URI | 기능 설명 |
+| :---: | :--- | :--- |
+| `POST` | `/api/v1/sessions` | 신규 연말정산 세션 생성 및 초기화 |
+| `POST` | `/api/v1/upload/pdf` | 홈택스 간소화 / 원천징수영수증 PDF 업로드 및 파싱 |
+| `POST` | `/api/v1/calculate` | 2025 귀속 세액 계산 및 단계별 감사 로그 생성 |
+| `POST` | `/api/v1/validate` | 부양가족 나이·소득 요건 판정 및 중복공제 검증 |
+| `GET`  | `/api/v1/audit/{session_id}` | "왜 이 금액인가요?" 7단계 계산 근거 및 법조문 조회 |
+| `POST` | `/api/v1/rag/query` | 국세청 공식 가이드라인 기반 세법 규정 및 절세 요건 질의 |
+| `GET`  | `/api/v1/report/pdf/{session_id}` | 회사 제출용 최종 결과지 PDF 생성 및 다운로드 |
+
+---
+
+## 8. 개발 환경 설정 및 실행 방법
+
+### 8.1 Backend (FastAPI)
 
 1. **가상환경 활성화 (Windows PowerShell 기준)**
    ```powershell
@@ -187,7 +257,7 @@ yearend_tax/
 
 ---
 
-### 3.2 Frontend (React + Vite)
+### 8.2 Frontend (React + Vite)
 
 1. **Node.js 설치 여부 확인**
    - Node.js (v18.0 이상) 및 npm이 설치되어 있어야 합니다.
@@ -208,8 +278,9 @@ yearend_tax/
 
 ---
 
-### 3.3 테스트 실행 (Backend)
+### 8.3 테스트 실행 (Backend Pytest)
 
 ```powershell
-pytest -v tests/
+.\.venv\Scripts\python.exe -m pytest -v tests/
 ```
+(총 74개 단위 및 통합 테스트 100% 통과)
