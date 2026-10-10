@@ -88,6 +88,40 @@ export function sanitizeRentItems(list) {
 }
 
 /**
+ * 객체 내 모든 계층의 민감정보(주민등록번호, 임대인번호)를 재귀적으로 탐색하여 마스킹
+ */
+export function deepSanitizeSensitiveData(data) {
+  if (!data) return data;
+  if (typeof data !== 'object') {
+    if (typeof data === 'string' && /^\d{6}-?[1-4]\d{6}$/.test(data.trim())) {
+      return maskRrn(data);
+    }
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data.map((item) => deepSanitizeSensitiveData(item));
+  }
+  const result = {};
+  for (const [key, value] of Object.entries(data)) {
+    const lowerKey = key.toLowerCase();
+    if (
+      lowerKey.includes('rrn') ||
+      lowerKey.includes('resident') ||
+      lowerKey.includes('jumin')
+    ) {
+      result[key] = value ? maskRrn(value) : value;
+    } else if (lowerKey.includes('landlordid')) {
+      result[key] = value ? maskLandlordId(value) : value;
+    } else if (typeof value === 'object' && value !== null) {
+      result[key] = deepSanitizeSensitiveData(value);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+/**
  * 문자열/객체 데이터 암호화 (대칭 바이트 치환 + Base64 인코딩)
  */
 export function encryptData(data) {
@@ -157,11 +191,11 @@ export function decryptData(cipherText) {
  */
 export function setSecureItem(key, value) {
   try {
-    let sanitized = value;
+    let sanitized = deepSanitizeSensitiveData(value);
     if (key === 'selftax_family_list') {
-      sanitized = sanitizeFamilyList(value);
+      sanitized = sanitizeFamilyList(sanitized);
     } else if (key === 'selftax_other_rent') {
-      sanitized = sanitizeRentItems(value);
+      sanitized = sanitizeRentItems(sanitized);
     }
 
     const encrypted = encryptData(sanitized);
