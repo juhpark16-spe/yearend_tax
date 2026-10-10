@@ -235,8 +235,7 @@ yearend_tax/
 | | `GET` | `/api/v1/audit/{identifier}` | "왜 이 금액인가요?" 7단계 연산 과정, 법정 수식 및 국세청 근거 조항 조회 |
 | **RAG & AI** | `POST` | `/api/v1/rag/search` | 국세청 연말정산 신고안내서 기반 벡터 검색 및 출처 페이지 명시 해설 |
 | | `POST` | `/api/v1/rag/explain` | Tax Engine 연산 결과와 국세청 가이드를 결합한 AI 맞춤형 설명(DTO) 생성 |
-| **진단 & 보고서** | `POST` | `/api/v1/checklist` | 월세, 실손보험, 혼인공제 등 공제 누락/과다공제 방지 자가진단 질문 리스트 |
-| | `GET` | `/api/v1/report/pdf/{session_id}` | 회사 제출용 최종 연말정산 결과지 PDF 스트림 다운로드 |
+| **자가진단 & 체크** | `POST` | `/api/v1/checklist` | 월세, 실손보험, 혼인공제 등 공제 누락/과다공제 방지 자가진단 질문 리스트 |
 
 ---
 
