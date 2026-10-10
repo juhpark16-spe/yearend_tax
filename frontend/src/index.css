@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  /* 스크롤바 숨기기 (가로 스크롤 영역용) */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+:root {
+  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #ECEEF2; /* PC 브라우저 배경 */
+  color: #111111;
+}
+
+/* 텍스트 줄바꿈 방지 및 둥근 모서리 최적화 */
+* {
+  box-sizing: border-box;
+}
+
+@keyframes progress-stripe {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 32px 0;
+  }
+}
+
+@keyframes progress-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-progress-stripe {
+  background-size: 32px 32px;
+  animation: progress-stripe 1.2s linear infinite;
+}
+
+.animate-progress-shimmer {
+  animation: progress-shimmer 2.2s ease-in-out infinite;
+}

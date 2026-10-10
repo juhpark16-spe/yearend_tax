@@ -1,0 +1,71 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+/lib/
+/lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+
+# Node / Frontend
+node_modules/
+*/node_modules/
+dist/
+*/dist/
+.next/
+*/.next/
+frontend/dist-ssr/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# IDE / OS
+.vscode/
+.idea/
+.clinerules/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Databases & Vector Stores
+*.sqlite3
+*.db
+backend/data/
+rag_data/vector/*.faiss
+rag_data/vector/*.pkl
+
+# Temporary and Scratch Files
+uploads/
+temp/
+scratch/
+scratch_*
+recovered_*
+frontend/public/preview_bgm.html
+

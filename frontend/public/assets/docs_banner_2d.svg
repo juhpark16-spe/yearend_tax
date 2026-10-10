@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="100%" height="100%">
+  <defs>
+    <!-- 부드러운 그림자 필터 -->
+    <filter id="softShadow" x="-10%" y="-10%" width="125%" height="125%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#0F172A" flood-opacity="0.12"/>
+    </filter>
+    <filter id="badgeShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#1E6FFB" flood-opacity="0.25"/>
+    </filter>
+    
+    <!-- 그라데이션 -->
+    <linearGradient id="clipBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <linearGradient id="docBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#F8FAFC"/>
+    </linearGradient>
+    <linearGradient id="subDocBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#E2E8F0"/>
+      <stop offset="100%" stop-color="#CBD5E1"/>
+    </linearGradient>
+    <linearGradient id="goldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FBBF24"/>
+      <stop offset="100%" stop-color="#F59E0B"/>
+    </linearGradient>
+    <linearGradient id="greenBadge" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10B981"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 배경 장식 요소: 2D 플랫 원 & 별 모양 -->
+  <circle cx="30" cy="40" r="16" fill="#60A5FA" opacity="0.3"/>
+  <circle cx="170" cy="155" r="12" fill="#93C5FD" opacity="0.4"/>
+  <circle cx="165" cy="45" r="6" fill="#FDE047" opacity="0.8"/>
+  <path d="M26 145 L28 140 L33 140 L29 144 L31 149 L26 146 L21 149 L23 144 L19 140 L24 140 Z" fill="#FBBF24" opacity="0.7"/>
+
+  <!-- 뒤쪽 보조 서류 (살짝 회전된 2D 문서) -->
+  <g transform="rotate(-9 85 105)" filter="url(#softShadow)">
+    <rect x="42" y="32" width="92" height="124" rx="10" fill="url(#subDocBg)"/>
+    <rect x="52" y="48" width="55" height="6" rx="3" fill="#94A3B8"/>
+    <rect x="52" y="62" width="70" height="4" rx="2" fill="#CBD5E1"/>
+    <rect x="52" y="74" width="62" height="4" rx="2" fill="#CBD5E1"/>
+    <rect x="52" y="86" width="68" height="4" rx="2" fill="#CBD5E1"/>
+  </g>
+
+  <!-- 메인 클립보드 베이스 -->
+  <g filter="url(#softShadow)">
+    <rect x="52" y="24" width="104" height="144" rx="14" fill="#1E293B"/>
+    <rect x="55" y="27" width="98" height="138" rx="12" fill="url(#clipBg)"/>
+    
+    <!-- 메인 앞면 흰색 서류 용지 -->
+    <rect x="62" y="40" width="84" height="118" rx="8" fill="url(#docBg)"/>
+    
+    <!-- 용지 우상단 접힌 모서리 효과 (2D 플랫) -->
+    <path d="M132 40 L146 54 L132 54 Z" fill="#E2E8F0"/>
+    <path d="M132 40 L146 54 L146 40 Z" fill="#3B82F6" opacity="0.25"/>
+
+    <!-- 서류 헤더 바 & 타이틀 -->
+    <rect x="72" y="52" width="46" height="7" rx="3.5" fill="#1E6FFB"/>
+    <circle cx="126" cy="55.5" r="3.5" fill="#10B981"/>
+
+    <!-- 체크리스트 항목 1 -->
+    <rect x="72" y="68" width="10" height="10" rx="3" fill="#10B981"/>
+    <path d="M74.5 73 L76.5 75 L79.5 70" fill="none" stroke="#FFFFFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="88" y="70" width="48" height="5" rx="2.5" fill="#475569"/>
+
+    <!-- 체크리스트 항목 2 -->
+    <rect x="72" y="86" width="10" height="10" rx="3" fill="#10B981"/>
+    <path d="M74.5 91 L76.5 93 L79.5 88" fill="none" stroke="#FFFFFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="88" y="88" width="42" height="5" rx="2.5" fill="#475569"/>
+
+    <!-- 체크리스트 항목 3 -->
+    <rect x="72" y="104" width="10" height="10" rx="3" fill="#10B981"/>
+    <path d="M74.5 109 L76.5 111 L79.5 106" fill="none" stroke="#FFFFFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="88" y="106" width="50" height="5" rx="2.5" fill="#475569"/>
+
+    <!-- 체크리스트 항목 4 (작성 중/미확인) -->
+    <rect x="72" y="122" width="10" height="10" rx="3" fill="#E2E8F0" stroke="#94A3B8" stroke-width="1.2"/>
+    <rect x="88" y="124" width="36" height="5" rx="2.5" fill="#94A3B8"/>
+
+    <!-- 서류 하단 스탬프/인장 (2D 플랫) -->
+    <circle cx="128" cy="138" r="9" fill="none" stroke="#EF4444" stroke-width="1.8" stroke-dasharray="2 1.5"/>
+    <circle cx="128" cy="138" r="6" fill="#FEE2E2" opacity="0.6"/>
+    <text x="128" y="141" font-size="7" font-weight="bold" fill="#EF4444" text-anchor="middle" font-family="sans-serif">확인</text>
+
+    <!-- 클립보드 상단 메탈 클립 (2D 플랫) -->
+    <rect x="88" y="18" width="32" height="12" rx="4" fill="#475569"/>
+    <rect x="94" y="24" width="20" height="8" rx="2" fill="#E2E8F0"/>
+    <circle cx="104" cy="22" r="2.5" fill="#CBD5E1"/>
+  </g>
+
+  <!-- 전면 우측 연필 오브젝트 (2D 플랫 벡터) -->
+  <g transform="rotate(32 152 135)" filter="url(#softShadow)">
+    <rect x="146" y="70" width="12" height="50" rx="2" fill="url(#goldGradient)"/>
+    <path d="M146 120 L152 132 L158 120 Z" fill="#FDE68A"/>
+    <path d="M150 128 L152 132 L154 128 Z" fill="#1E293B"/>
+    <rect x="146" y="64" width="12" height="6" rx="1.5" fill="#CBD5E1"/>
+    <rect x="146" y="58" width="12" height="6" rx="2" fill="#F43F5E"/>
+    <!-- 연필 광택 라인 -->
+    <line x1="149" y1="72" x2="149" y2="116" stroke="#FEF3C7" stroke-width="1.5" stroke-linecap="round"/>
+  </g>
+
+  <!-- 좌하단 강조 뱃지: 원형 2D 체크 뱃지 -->
+  <g filter="url(#badgeShadow)">
+    <circle cx="52" cy="144" r="16" fill="url(#greenBadge)"/>
+    <circle cx="52" cy="144" r="14" fill="none" stroke="#FFFFFF" stroke-width="1.8" opacity="0.5"/>
+    <path d="M46 144 L50.5 148.5 L58 140" fill="none" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
