@@ -1,19 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { useAuth } from './context/AuthContext';
 import IntroScreen from './components/godash/IntroScreen';
 import MainDashboard from './components/godash/MainDashboard';
-import FamilyPage from './pages/FamilyPage';
-import WithholdingPage from './pages/WithholdingPage';
-import PreviousJobPage from './pages/PreviousJobPage';
-import HometaxPage from './pages/HometaxPage';
-import DataInputPage from './pages/DataInputPage';
-import TaxHistoryPage from './pages/TaxHistoryPage';
-import TaxResultPage from './pages/TaxResultPage';
-import AiReportPage from './pages/AiReportPage';
-import RequiredDocsPage from './pages/RequiredDocsPage';
-import TaxTipsPage from './pages/TaxTipsPage';
-import UserGuidePage from './pages/UserGuidePage';
-import CompanyPage from './pages/CompanyPage';
 import DesignAlertModal from './components/DesignAlertModal';
 import BgmPlayer from './components/BgmPlayer';
 import {
@@ -29,6 +17,30 @@ import {
   checkHasWithholdingData,
   removeUserTaxDataKey,
 } from './utils/userTaxStorage';
+
+// 코드 분할 (Code Splitting): 페이지별 지연 로딩을 통한 초기 번들 크기 및 로딩 속도 최적화
+const FamilyPage = lazy(() => import('./pages/FamilyPage'));
+const WithholdingPage = lazy(() => import('./pages/WithholdingPage'));
+const PreviousJobPage = lazy(() => import('./pages/PreviousJobPage'));
+const HometaxPage = lazy(() => import('./pages/HometaxPage'));
+const DataInputPage = lazy(() => import('./pages/DataInputPage'));
+const TaxHistoryPage = lazy(() => import('./pages/TaxHistoryPage'));
+const TaxResultPage = lazy(() => import('./pages/TaxResultPage'));
+const AiReportPage = lazy(() => import('./pages/AiReportPage'));
+const RequiredDocsPage = lazy(() => import('./pages/RequiredDocsPage'));
+const TaxTipsPage = lazy(() => import('./pages/TaxTipsPage'));
+const UserGuidePage = lazy(() => import('./pages/UserGuidePage'));
+const CompanyPage = lazy(() => import('./pages/CompanyPage'));
+
+// 페이지 전환 로딩 스피너 컴포넌트
+function PageLoadingFallback() {
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[50vh] py-16">
+      <div className="w-10 h-10 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin"></div>
+      <p className="mt-4 text-sm font-medium text-slate-500 animate-pulse">화면을 불러오는 중입니다...</p>
+    </div>
+  );
+}
 
 /**
  * 2025년 AI 셀프 연말정산 SPA 메인 애플리케이션 (정산봄)
@@ -407,7 +419,8 @@ export default function App() {
           동일한 단일 페이지 컴포넌트가 렌더링됩니다.
         */}
         <main className="flex-1 flex flex-col overflow-hidden" key={`${user?.id || 'guest'}_${guestSessionKey}`}>
-          {/* 1. 메인 홈 화면 */}
+          <Suspense fallback={<PageLoadingFallback />}>
+            {/* 1. 메인 홈 화면 */}
           {currentScreen === 'main' && (
             <MainDashboard
               onNavigate={navigateToStep}
@@ -667,6 +680,7 @@ export default function App() {
               onPrev={goHome}
             />
           )}
+          </Suspense>
         </main>
 
         {/* 하단 홈 인디케이터 바 */}
