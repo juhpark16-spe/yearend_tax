@@ -126,61 +126,73 @@ class TaxCalculationService:
     ) -> Tuple[int, Dict[str, Any]]:
         """신용카드, 체크카드, 문화체육(2025 신설), 전통시장/대중교통 소득공제 계산"""
         if gross_salary <= 0:
-            return 0, {"threshold": 0, "base_deduction": 0, "additional_deduction": 0}
+            return 0, {
+                "threshold": 0,
+                "base_deduction": 0,
+                "additional_deduction": 0,
+                "actual_base": 0,
+                "actual_additional": 0,
+                "total_deduction": 0,
+            }
 
         # 최저사용금액: 총급여의 25%
         threshold = math.floor(gross_salary * 0.25)
         is_under_70m = gross_salary <= 70000000
         culture_eligible = culture_sports if is_under_70m else 0
 
-        # 공제율금액
-        rate_amt_credit = math.floor(credit_card_general * 0.15)
-        rate_amt_debit = math.floor(debit_card_cash * 0.30)
-        rate_amt_culture = math.floor(culture_eligible * 0.30)
-        rate_amt_mt = math.floor(market_transport * 0.40)
+        # 총 사용금액
+        total_spent = credit_card_general + debit_card_cash + culture_eligible + market_transport
 
-        total_rate_amt = rate_amt_credit + rate_amt_debit + rate_amt_culture + rate_amt_mt
+        # 최저사용금액(문턱) 순차 차감: 납세자에게 유리하도록 낮은 공제율 순(신용 15% -> 직불 30% -> 문화체육 30% -> 전통시장/교통 40%) 차감
+        rem_threshold = threshold
 
-        # 공제제외금액 산출 (*1)
-        amt_15 = credit_card_general
-        amt_30 = debit_card_cash + culture_eligible
-        amt_40 = market_transport
-        total_spent = amt_15 + amt_30 + amt_40
+        # 1) 신용카드 (15%)
+        threshold_cc = min(credit_card_general, rem_threshold)
+        rem_threshold -= threshold_cc
+        excess_cc = credit_card_general - threshold_cc
 
-        if threshold <= amt_15:
-            excluded_amt = math.floor(threshold * 0.15)
-        elif threshold <= (amt_15 + amt_30):
-            excluded_amt = math.floor(amt_15 * 0.15 + (threshold - amt_15) * 0.30)
-        elif threshold <= total_spent:
-            excluded_amt = math.floor(amt_15 * 0.15 + amt_30 * 0.30 + (threshold - amt_15 - amt_30) * 0.40)
-        else:
-            excluded_amt = total_rate_amt
+        # 2) 직불/현금영수증 (30%)
+        threshold_dc = min(debit_card_cash, rem_threshold)
+        rem_threshold -= threshold_dc
+        excess_dc = debit_card_cash - threshold_dc
 
-        # 공제가능금액
-        possible_deduction = max(0, total_rate_amt - excluded_amt)
+        # 3) 도서공연/체육 (30%)
+        threshold_cs = min(culture_eligible, rem_threshold)
+        rem_threshold -= threshold_cs
+        excess_cs = culture_eligible - threshold_cs
 
-        # 공제한도 (*2)
+        # 4) 전통시장/대중교통 (40%)
+        threshold_mt = min(market_transport, rem_threshold)
+        rem_threshold -= threshold_mt
+        excess_mt = market_transport - threshold_mt
+
+        # 공제율 적용
+        rate_amt_credit = math.floor(excess_cc * 0.15)
+        rate_amt_debit = math.floor(excess_dc * 0.30)
+        rate_amt_culture = math.floor(excess_cs * 0.30)
+        rate_amt_mt = math.floor(excess_mt * 0.40)
+
+        # 1. 기본공제 (신용카드 + 직불/현금영수증)
+        base_target_amt = rate_amt_credit + rate_amt_debit
         base_limit = 3000000 if is_under_70m else 2500000
-        general_deduction = min(possible_deduction, base_limit)
+        actual_base = min(base_target_amt, base_limit)
 
-        # 추가공제금액 (*3)
-        excess_possible = max(0, possible_deduction - base_limit)
-        add_target_amt = rate_amt_mt + rate_amt_culture
+        # 2. 추가공제 (도서공연/체육시설 + 전통시장/대중교통)
+        additional_target_amt = rate_amt_culture + rate_amt_mt
         add_limit = 3000000 if is_under_70m else 2000000
-        additional_deduction = min(excess_possible, add_target_amt, add_limit)
+        actual_additional = min(additional_target_amt, add_limit)
 
-        total_card_deduction = general_deduction + additional_deduction
+        total_card_deduction = actual_base + actual_additional
 
         meta = {
             "threshold": threshold,
             "total_spent": total_spent,
-            "total_rate_amt": total_rate_amt,
-            "excluded_amt": excluded_amt,
-            "possible_deduction": possible_deduction,
             "base_limit": base_limit,
-            "general_deduction": general_deduction,
             "additional_limit": add_limit,
-            "additional_deduction": additional_deduction,
+            "actual_base": actual_base,
+            "actual_additional": actual_additional,
+            "general_deduction": actual_base,
+            "additional_deduction": actual_additional,
             "total_deduction": total_card_deduction,
         }
         return total_card_deduction, meta
