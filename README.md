@@ -49,6 +49,7 @@ flowchart LR
 * 화면(④ 공제자료 입력 ~ ⑥ AI 리포트)의 예상세액·리포트는 브라우저의 `taxCalculator.js`가 백엔드와 같은 법정 수식으로 즉시 계산합니다.
 * AI 리포트의 **'AI 근거 보기'**는 화면 계산값(숫자만)을 `/rag/explain`에 보내 국세청 안내서 출처가 담긴 해설을 받아 보여줍니다.
 * AI 리포트의 **'서버 교차검증'**은 화면 입력을 `PUT /sessions/{id}/inputs`로 저장하고 `/calculate`로 백엔드 Python 엔진이 다시 계산한 뒤, 7개 단계와 세액공제·감면 항목별 산출액(산출세액 한도 적용 전)과 적용 순서별 실제 적용액을 화면 엔진과 비교하고 `/audit` 감사 로그(단계별 수식·근거 조항)를 보여줍니다. 고길동 샘플 기준 7개 단계가 모두 일치합니다.
+* **두 엔진 일치 테스트**(`tests/parity`): 가상 인물 시나리오 6종(표준세액공제 1인, 4인 가구 전체 공제, 중도 이직 고소득, 이월 기부금+세액 부족, 한부모+월세, 부녀자+경로)에서 7단계·세액공제 항목별·적용순서별 배분·다음 해 이월 기부금·지방소득세가 두 엔진 모두 같은지 자동으로 확인합니다(화면에는 보이지 않는 개발용). 이 테스트로 찾은 차이를 고쳐, 신용카드 등 소득공제는 국세청 서식 방식(공제율 적용 금액 − 공제제외금액, 추가공제는 기본한도를 넘는 금액이 있을 때만)으로, 교육비는 인별 내역이 없으면 화면이 1인별 한도를 적용해 넘긴 합계를 쓰도록 두 엔진을 맞췄습니다.
 * 세액감면·공제는 **소득세법 제60조 적용순서**대로 산출세액 범위 안에서 배분합니다: ① 세액감면(중소기업 취업자) → ② 이월공제 불가 세액공제(근로소득 → 혼인 → 자녀 → 보장성보험 → 의료비 → 교육비 → 정치자금 → 고향사랑 → 우리사주조합 → 표준세액공제 → 월세) → ③ 이월공제 가능 세액공제(특례 → 일반(종교단체 외) → 일반(종교단체) 기부금, 같은 종류는 전년도 이월분 먼저, 소득세법 제61조) → ④ 연금계좌(초과분은 공제받지 않은 것으로 봄, 원천세과-830). 화면 엔진(`taxCalculator.js`)과 백엔드 엔진이 같은 규칙을 씁니다.
 * **표준세액공제 판정**: 특별세액공제(특별소득공제 포함)를 받는 경우와 표준세액공제 13만 원을 받는 경우(특별소득공제를 빼고 과세표준·산출세액부터 다시 계산)의 결정세액을 끝까지 계산해 적은 쪽을 택합니다(같으면 특별세액공제).
 * **기부금 세액공제**: 한도를 정치자금 → 고향사랑(연 2,000만 원) → 특례 → 우리사주(30%) → 일반(30%, 종교단체 있으면 10%+min(20%, 종교단체 외)) 순으로 앞 종류를 빼고 계산하고, 특례·우리사주·일반 합계 1천만 원 이하 15%·초과 30%를 적용합니다.
@@ -65,7 +66,7 @@ flowchart LR
 | **Frontend** | `React 18`, `Vite 5`, `Tailwind CSS`, `Lucide React`, `Supabase Auth`, `React.lazy (코드 분할)` |
 | **AI & RAG** | `LangChain`, `FAISS Vector Store`, `국세청 연말정산 공식 가이드라인 RAG`, `GPT-4o (설명 생성용)` |
 | **Security** | `In-Memory PII Masker`, `Supabase JWT 서명 검증(JWKS/HS256) & IDOR Guard`, `Client-Side Recursive PII Sanitization`, `브라우저 저장소 AES-GCM 암호화(Web Crypto)` |
-| **Testing** | `Pytest` 단위·통합 테스트 108개 (RAG 4개는 OpenAI API·네트워크 필요) |
+| **Testing** | `Pytest` 단위·통합·두 엔진 일치 테스트 147개 (RAG 4개는 OpenAI API·네트워크 필요), 프론트엔드 저장소 암호화 테스트(`npm run test:storage`) |
 
 ---
 
@@ -87,7 +88,10 @@ yearend_tax/
 │   │       └── __init__.py
 │   ├── core/                   # 핵심 설정 및 DB 세션 관리
 │   │   ├── config.py           # Pydantic Settings 환경 설정
-│   │   └── database.py         # SQLAlchemy 엔진 및 세션
+│   │   ├── database.py         # SQLAlchemy 엔진 및 세션
+│   │   ├── migrations.py       # Alembic 단일 DB 구조 관리 (시작 시 버전 확인·자동 upgrade)
+│   │   ├── rate_limit.py       # 요청 횟수 제한 (429 + Retry-After)
+│   │   └── security_check.py   # 운영 환경 비밀 키·보안 설정 시작 점검
 │   ├── models/                 # SQLAlchemy ORM 모델
 │   │   ├── user.py             # 사용자 모델
 │   │   ├── session.py          # 정산 세션 모델
@@ -111,6 +115,7 @@ yearend_tax/
 │   ├── security/               # 인증/인가 및 개인정보 보호
 │   │   ├── auth.py             # Supabase JWT 서명·만료 검증 및 IDOR 방어 가드
 │   │   ├── guest.py            # 게스트 전용 서명 토큰 발급·검증, 게스트 자료 삭제·만료 정리
+│   │   ├── image_pii_mask.py   # 스캔본 PDF 이미지 주민번호 마스킹 (외부 OCR 전송 전)
 │   │   └── pii_mask.py         # 주민등록번호·주소·전화번호 마스킹 (업로드 직후 인메모리)
 │   ├── services/               # 비즈니스 로직 서비스 계층
 │   │   ├── tax_calculation_service.py # 세액 계산 통합 서비스
@@ -118,6 +123,7 @@ yearend_tax/
 │   │   ├── validation_service.py      # 공제 적격성 검증 서비스
 │   │   ├── rag_service.py             # 국세청 규정 RAG 질의 서비스
 │   │   ├── audit_service.py           # 계산 근거 및 변경이력 기록
+│   │   ├── data_retention.py          # 서버 자료 보존 기간 정리·내 자료 삭제
 │   │   └── tax_session_service.py     # 유저 세션 생명주기 관리
 │   ├── ai/                     # AI 설명 생성 모듈
 │   │   └── explanation_service.py     # 환급/납부 근거 AI 요약 및 설명
@@ -150,7 +156,7 @@ yearend_tax/
 │   ├── src/
 │   │   ├── components/         # 재사용 UI 컴포넌트
 │   │   │   ├── godash/               # 인트로 및 메인 대시보드
-│   │   │   ├── tax_sections/         # 12개 공제 항목별 세부 폼
+│   │   │   ├── tax_sections/         # 공제 항목별 세부 폼 7개 (주택자금·주택마련저축·연금·노란우산·장기투자·기타공제·전년도 이월 기부금)
 │   │   │   ├── BgmPlayer.jsx         # 배경음악 재생 컨트롤러
 │   │   │   ├── UploadZone.jsx        # Drag & Drop PDF 업로더
 │   │   │   ├── UploadProgressBar.jsx # 파일 업로드 진행 표시줄
@@ -159,6 +165,8 @@ yearend_tax/
 │   │   │   ├── HomeButton.jsx        # 홈 바로가기 플로팅 버튼
 │   │   │   ├── DesignAlertModal.jsx  # 커스텀 알림/확인 모달
 │   │   │   ├── AuditTrailTimeline.jsx# 감사 추적 인터랙티브 타임라인
+│   │   │   ├── ServerCrossCheckCard.jsx # 서버 교차검증 카드 (두 엔진 비교·감사 로그·내 서버 자료 삭제)
+│   │   │   ├── AiExplainCard.jsx     # AI 근거 보기 카드 (/rag/explain)
 │   │   │   └── UserAuthStatus.jsx    # 로그인/게스트 상태 표시
 │   │   ├── pages/              # 주요 화면 (13개 전체 페이지, React.lazy 적용)
 │   │   │   ├── HometaxPage.jsx       # 국세청 간소화자료 업로드
@@ -180,6 +188,8 @@ yearend_tax/
 │   │   │   └── api.js                # Axios REST API 클라이언트
 │   │   ├── utils/              # 유틸리티 함수 및 스토리지
 │   │   │   ├── taxCalculator.js      # 프론트엔드 실시간 세액 계산 엔진
+│   │   │   ├── serverInputs.js       # 화면 입력 → 백엔드 입력 변환, 두 엔진 비교 함수
+│   │   │   ├── eligibility.js        # 부양가족 기본공제 요건·출산입양 순서 판정
 │   │   │   ├── secureStorage.js      # PII 재귀 마스킹 + 민감 키 AES-GCM 투명 암호화(IndexedDB 비추출 키)
 │   │   │   ├── userTaxStorage.js     # 사용자별 세무 데이터 관리자
 │   │   │   ├── guestStorage.js       # 게스트 모드 로컬 세션 스토리지
@@ -194,13 +204,15 @@ yearend_tax/
 │   ├── vite.config.js          # Vite 설정 및 청크 분할(manualChunks) 최적화
 │   ├── tailwind.config.js
 │   ├── postcss.config.js
+│   ├── tests/
+│   │   └── secureStorage.test.mjs # 저장소 AES-GCM 암호화 테스트 (npm run test:storage)
 │   └── package.json            # 프론트엔드 패키지 의존성
 ├── rules/                      # 세법 규칙 정의 및 상수 모듈
 │   └── 2025/
 │       ├── tax_rates.py        # 2025년 기본세율, 누진공제, 한도액 정의
 │       └── __init__.py
 ├── rag_data/                   # 국세청 공식 가이드라인 원본 PDF 및 Vector DB
-├── tests/                      # Pytest 테스트 스위트 (145개)
+├── tests/                      # Pytest 테스트 스위트 (147개)
 │   ├── unit/                   # 단위 테스트
 │   │   ├── test_tax_engine.py          # 세액 계산 엔진 단위 테스트
 │   │   ├── test_rule_engine.py         # 규칙 검증 엔진 단위 테스트
@@ -215,6 +227,7 @@ yearend_tax/
 │   │   ├── test_tax_engine_fixes.py    # 자녀 8세·교육비 인별 한도·표준세액공제·차감 0원 테스트
 │   │   ├── test_session_inputs.py      # 화면 입력 저장 → 계산 → 감사 로그 교차검증 연동 테스트
 │   │   ├── test_image_pii_mask.py      # 스캔본 이미지 주민번호 마스킹·외부 전송 차단 테스트
+│   │   ├── test_national_pension_extract.py # 간소화 국민연금보험료 추출 테스트
 │   │   ├── test_security_settings.py   # 운영 환경 비밀 키·보안 설정 점검 테스트
 │   │   └── test_rate_limit_retention_migrations.py # 요청 제한·보존 기간·Alembic 테스트
 │   ├── parity/                 # 두 세액 엔진 일치 테스트 (화면에는 보이지 않는 개발용)
@@ -224,9 +237,9 @@ yearend_tax/
 │   ├── integration/            # 통합 테스트
 │   │   └── test_api_v1.py              # v1 API 엔드포인트 통합 테스트
 │   └── conftest.py             # 테스트 픽스처
-├── alembic/                    # DB 스키마 마이그레이션
+├── alembic/                    # DB 스키마 마이그레이션 (DB 구조 변경의 유일한 기준)
 ├── alembic.ini
-├── selftax.db                  # 로컬 SQLite 데이터베이스 (서버 실행 시 자동 생성)
+├── selftax.db                  # 로컬 SQLite 데이터베이스 (개발 환경 서버 시작 시 Alembic 마이그레이션으로 생성·갱신)
 ├── .env                        # 환경 변수 (로컬)
 ├── .env.example                # 환경 변수 템플릿
 ├── requirements.txt            # 백엔드 파이썬 의존성 패키지 목록
@@ -261,13 +274,18 @@ yearend_tax/
 ## 7. 핵심 REST API 명세 (Core REST APIs)
 
 > 모든 엔드포인트는 접두사 `/api/v1`을 사용하며, 클라이언트 호환성을 위한 `/api/v1/tax/*` 별칭(Alias) 라우팅도 함께 지원합니다.  
-> 대화형 API 문서는 서버 구동 후 **Swagger UI**(`http://localhost:8000/docs`)에서 직접 테스트할 수 있습니다.
+> 대화형 API 문서는 서버 구동 후 **Swagger UI**(`http://localhost:8000/docs`)에서 직접 테스트할 수 있습니다(운영 환경에서는 꺼짐).  
+> 세션·문서·결과 API는 로그인 토큰 또는 게스트 토큰이 있어야 하며(없으면 401, 다른 사람 자료는 403), 요청 횟수 제한을 넘으면 429와 `Retry-After` 헤더로 거절합니다.
 
 | 분류 | HTTP Method | 엔드포인트 URI | 기능 설명 |
 | :--- | :---: | :--- | :--- |
+| **인증(게스트)** | `POST` | `/api/v1/auth/guest` | '로그인 없이 둘러보기'용 게스트 전용 서명 토큰 발급 (IP당 10분 10회) |
+| | `DELETE` | `/api/v1/auth/guest` | 현재 게스트의 서버 자료 즉시 삭제 |
 | **세션 관리** | `POST` | `/api/v1/sessions` | 신규 연말정산 세션 발급 및 중기청년/신혼부부 플래그 설정 |
 | | `GET` | `/api/v1/sessions/{session_id}` | 세션 진행 상태 및 사용자 정보 조회 |
 | | `PUT` | `/api/v1/sessions/{session_id}/inputs` | 화면 입력(근무지·부양가족·공제) 저장 — 서버 교차검증용 (주민번호 원문 미수신) |
+| | `DELETE` | `/api/v1/sessions/{session_id}` | 내 세션과 그 문서·입력·결과·감사로그 삭제 (소유자만) |
+| | `DELETE` | `/api/v1/me/data` | 서버에 저장된 내 자료(모든 세션) 전체 삭제 |
 | **문서 처리** | `POST` | `/api/v1/upload` | 다중 PDF 업로드 (최대 20MB), 인메모리 PII 마스킹 및 4종 자동 분류 |
 | | `POST` | `/api/v1/ocr` | PDF 텍스트 추출 및 문서 엔티티 분석/분류 (HOMETAX, WITHHOLDING 등) |
 | **적격성 검증** | `POST` | `/api/v1/validate` | 부양가족 나이·소득 요건(100만원 이하) 판정 및 중도이직 근무지 합산 검증 |
@@ -334,7 +352,7 @@ yearend_tax/
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -v tests/
 ```
-(총 145개 단위·통합·엔진 일치 테스트. `test_rag_system.py` 등 RAG 4개는 OpenAI API 키와 네트워크가 있어야 통과합니다)
+(총 147개 단위·통합·엔진 일치 테스트. `test_rag_system.py` 등 RAG 4개는 OpenAI API 키와 네트워크가 있어야 통과합니다)
 
 - **두 엔진 일치 테스트**만 따로 실행: `.\.venv\Scripts\python.exe -m pytest -v tests/parity` (Node.js 필요, 없으면 건너뜀)
   - 가상 인물 시나리오마다 화면 엔진(`taxCalculator.js`)과 백엔드 엔진을 같은 입력으로 계산해 7단계·세액공제 항목별·적용순서별 배분·다음 해 이월 기부금·지방소득세가 모두 같은지, 결정세액·차감징수세액이 기대값과 같은지 확인합니다.
