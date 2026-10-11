@@ -72,6 +72,16 @@ export const taxService = {
     });
     return response.data;
   },
+  // 화면 입력 자료 저장 (근무지·부양가족·공제) — 백엔드 세액 엔진 교차검증용
+  saveSessionInputs: async (sessionId, inputs) => {
+    const response = await api.put(`/tax/sessions/${sessionId}/inputs`, inputs);
+    return response.data;
+  },
+  // 정산 결과 상세 조회
+  getResult: async (sessionId) => {
+    const response = await api.get(`/tax/result/${sessionId}`);
+    return response.data;
+  },
   // 세액 계산 요청
   calculateTax: async (sessionId) => {
     const response = await api.post('/tax/calculate', { session_id: sessionId });

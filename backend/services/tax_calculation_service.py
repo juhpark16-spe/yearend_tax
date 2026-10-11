@@ -530,7 +530,11 @@ class TaxCalculationService:
 
         if total_salary > 0:
             for dep in dependents:
-                if dep.annual_income_amount > 1000000:
+                # 소득요건(연 소득금액 100만 원)은 부양가족에게만 적용 (본인의 장애인·경로우대 추가공제는 유지)
+                if dep.relation != RelationType.SELF and dep.annual_income_amount > 1000000:
+                    continue
+                # 부양가족 단계에서 기본공제 '해당없음'(나이요건 미충족 등)으로 판정된 사람은 제외
+                if dep.relation != RelationType.SELF and dep.is_basic_deduction is False:
                     continue
 
                 if dep.relation == RelationType.SPOUSE:
@@ -570,7 +574,8 @@ class TaxCalculationService:
         emp_ins = exp.employment_insurance if exp and exp.employment_insurance > 0 else 0
         housing_rent_loan = exp.housing_rent_loan if exp else 0
         housing_rent_ded = math.floor(housing_rent_loan * 0.40)
-        housing_sub = min(3000000, exp.housing_subscription) if exp else 0
+        # 주택청약종합저축: 총급여 7천만 원 이하 (납입 300만 원 한도 × 40%)
+        housing_sub = min(3000000, exp.housing_subscription) if (exp and total_salary <= 70000000) else 0
         housing_sub_ded = math.floor(housing_sub * 0.40)
         combined_housing_saving = min(4000000, housing_rent_ded + housing_sub_ded)
         mortgage_interest = exp.mortgage_interest if exp else 0
@@ -590,10 +595,29 @@ class TaxCalculationService:
             market_transport=mt_trans,
             culture_sports=cs_sport,
         )
-        total_other_income_deduction = card_deduction
+        # 그 밖의 소득공제 (조세특례제한법) — raw_details의 납입액 기준
+        rd_other = (exp.raw_details if exp and exp.raw_details else {}) or {}
+        # 개인연금저축 (조특법 제86조, 2000.12.31 이전 가입분): 납입액 40%, 72만 원 한도
+        personal_pension_old_ded = min(720000, math.floor(int(rd_other.get("personal_pension_old_paid", 0) or 0) * 0.40))
+        # 소기업·소상공인 공제부금 (조특법 제86조의3): 근로소득금액 4천만 이하 500만 / 1억 이하 300만 / 초과 200만
+        small_biz_limit = 5000000 if earned_income_amount <= 40000000 else (3000000 if earned_income_amount <= 100000000 else 2000000)
+        small_biz_ded = min(small_biz_limit, int(rd_other.get("small_biz_paid", 0) or 0))
+        # 장기집합투자증권저축 (조특법 제91조의16): 총급여 8천만 이하, 납입액 40%, 240만 원 한도
+        #   국세청 간소화 자료가 제공한 공제대상금액(가입요건 반영)이 있으면 그 값을 우선 사용
+        long_invest_ded = min(
+            2400000,
+            int(rd_other.get("long_invest_nts_deductible", 0) or 0)
+            + math.floor(int(rd_other.get("long_invest_paid", 0) or 0) * 0.40),
+        ) if total_salary <= 80000000 else 0
+        # 벤처투자조합 출자 등 (조특법 제16조): 출자액 10%, 300만 원 한도 (화면 엔진과 동일 기준)
+        venture_fund_ded = min(3000000, math.floor(int(rd_other.get("venture_fund_paid", 0) or 0) * 0.10))
+        extra_other_deductions = personal_pension_old_ded + small_biz_ded + long_invest_ded + venture_fund_ded
+
+        total_other_income_deduction = card_deduction + extra_other_deductions
+        limit_target_other = card_deduction + small_biz_ded + long_invest_ded + venture_fund_ded
 
         # 4) 종합한도 초과액
-        target_limit_sum = combined_housing_saving + mortgage_ded + total_other_income_deduction
+        target_limit_sum = combined_housing_saving + mortgage_ded + limit_target_other
         income_deduction_limit_excess = max(0, target_limit_sum - 25000000)
 
         total_income_deductions = (
@@ -620,6 +644,11 @@ class TaxCalculationService:
                 "pension_deduction": total_pension_deduction,
                 "special_income_deduction": total_special_income_deduction,
                 "other_income_deduction": total_other_income_deduction,
+                "card_deduction": card_deduction,
+                "personal_pension_old_deduction": personal_pension_old_ded,
+                "small_biz_deduction": small_biz_ded,
+                "long_invest_deduction": long_invest_ded,
+                "venture_fund_deduction": venture_fund_ded,
                 "income_deduction_limit_excess": income_deduction_limit_excess,
                 "total_deductions": total_income_deductions,
             },
@@ -853,7 +882,7 @@ class TaxCalculationService:
             earned = self.calculate_earned_income_tax_credit(calculated_tax=ct, gross_salary=total_salary, reduction_sme=sme)
             return ct, sme, earned
 
-        std_excess = max(0, total_other_income_deduction - 25000000)
+        std_excess = max(0, limit_target_other - 25000000)
         std_income_deductions = total_personal_deduction + total_pension_deduction + total_other_income_deduction - std_excess
         std_taxable = max(0, earned_income_amount - std_income_deductions)
         std_ct, std_sme, std_earned = _basic_tax(std_taxable)

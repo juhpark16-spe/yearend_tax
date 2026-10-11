@@ -4,6 +4,7 @@ import HomeButton from '../components/HomeButton';
 import { calculateSettlementTax } from '../utils/taxCalculator';
 import { getSecureItem } from '../utils/secureStorage';
 import AiExplainCard from '../components/AiExplainCard';
+import ServerCrossCheckCard from '../components/ServerCrossCheckCard';
 import { failsAgeRequirement } from '../utils/eligibility';
 
 /**
@@ -552,6 +553,9 @@ export default function AiReportPage({
 
             {/* 카드 0-1: AI 근거 보기 (화면 계산값 → /rag/explain, 국세청 안내서 출처 표시) */}
             <AiExplainCard taxResult={effectiveTaxData} />
+
+            {/* 카드 0-2: 서버 교차검증 (같은 입력을 백엔드 엔진으로 재계산 + 감사 로그) */}
+            <ServerCrossCheckCard jsResult={effectiveTaxData} userName={effectiveUserName} />
 
             {/* 카드 1: 부양가족공제 (요구사항 4: 실제 등록된 가족 및 공제금액 한눈에 파악) */}
             <div className="w-full bg-white rounded-3xl p-5 border border-slate-200/90 shadow-2xs flex flex-col items-center text-center space-y-4">

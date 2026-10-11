@@ -124,6 +124,66 @@ class ValidationResponse(BaseModel):
 # 4. Tax Calculation Schemas & DTO
 # ============================================================================
 
+class WorkplaceInput(BaseModel):
+    """근무지 소득 입력 (주(현)/종(전))"""
+    workplace_type: str = Field("CURRENT", description="CURRENT | PREVIOUS")
+    company_name: str = Field("근무지", max_length=200)
+    business_number: Optional[str] = None
+    gross_salary: int = Field(0, ge=0)
+    non_taxable_salary: int = Field(0, ge=0)
+    prepaid_income_tax: int = Field(0, ge=0)
+    prepaid_local_tax: int = Field(0, ge=0)
+
+
+class DependentInput(BaseModel):
+    """부양가족 입력 (주민번호 원문은 받지 않음)"""
+    name: str = Field(..., max_length=50)
+    relation: str = Field(..., description="SELF | SPOUSE | PARENT | CHILD | SIBLING")
+    birth_date: Optional[str] = Field(None, description="YYYY-MM-DD")
+    annual_income_amount: int = Field(0, ge=0)
+    is_disabled: bool = False
+    is_elderly: bool = False
+    is_basic_deduction: bool = True
+    birth_order: int = Field(0, ge=0, le=3)
+
+
+class ExpenseInput(BaseModel):
+    """공제 지출 입력 (ExpenseDeduction 컬럼 + raw_details 세부)"""
+    national_pension: int = Field(0, ge=0)
+    health_insurance: int = Field(0, ge=0)
+    employment_insurance: int = Field(0, ge=0)
+    credit_card_general: int = Field(0, ge=0)
+    debit_card_cash: int = Field(0, ge=0)
+    market_transport: int = Field(0, ge=0)
+    culture_sports: int = Field(0, ge=0)
+    housing_rent_loan: int = Field(0, ge=0)
+    housing_subscription: int = Field(0, ge=0)
+    mortgage_interest: int = Field(0, ge=0)
+    personal_pension_saving: int = Field(0, ge=0)
+    irp_saving: int = Field(0, ge=0)
+    medical_general: int = Field(0, ge=0)
+    medical_special: int = Field(0, ge=0)
+    education_child: int = Field(0, ge=0)
+    monthly_rent_paid: int = Field(0, ge=0)
+    raw_details: Dict[str, Any] = Field(default_factory=dict)
+
+
+class SessionInputsRequest(BaseModel):
+    """화면 입력 자료를 세션에 저장 (기존 근무지·부양가족·공제 자료를 교체)"""
+    workplaces: List[WorkplaceInput] = Field(default_factory=list)
+    dependents: List[DependentInput] = Field(default_factory=list)
+    expense: ExpenseInput = Field(default_factory=ExpenseInput)
+    is_newly_married: Optional[bool] = None
+    is_sme_youth: Optional[bool] = None
+
+
+class SessionInputsResponse(BaseModel):
+    session_id: str
+    workplaces: int
+    dependents: int
+    saved: bool = True
+
+
 class TaxCalculateRequest(BaseModel):
     """세액 계산 요청 DTO"""
     session_id: str = Field(..., description="정산 세션 UUID")

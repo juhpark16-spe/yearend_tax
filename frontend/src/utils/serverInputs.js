@@ -1,0 +1,161 @@
+/**
+ * 화면 입력 자료 → 백엔드 세액 엔진 입력(PUT /sessions/{id}/inputs) 변환
+ * - 주민등록번호 원문은 보내지 않는다 (생년월일·관계·소득·장애 여부만)
+ * - 집계 금액은 화면 엔진(calculateSettlementTax) 결과를 그대로 사용해 두 엔진이 같은 입력을 보게 한다
+ */
+import { collectPensionItems } from './taxCalculator.js';
+import { birthYearOf, cleanPersonName, isDisabledMember, shouldExcludeBasicDeduction } from './eligibility.js';
+
+const n = (v) => {
+  const x = Number(String(v ?? 0).replace(/,/g, ''));
+  return Number.isFinite(x) ? Math.max(0, Math.round(x)) : 0;
+};
+
+const toRelation = (rel = '', isSelf = false) => {
+  if (isSelf || rel.includes('본인')) return 'SELF';
+  if (rel === '배우자') return 'SPOUSE';
+  if (rel.includes('자녀') || rel.includes('손자') || rel.includes('입양') || rel.includes('비속')) return 'CHILD';
+  if (rel.includes('존속') || rel.includes('부/모') || rel.includes('부모')) return 'PARENT';
+  return 'SIBLING';
+};
+
+const toBirthDate = (m = {}) => {
+  const b = String(m.birth || m.birthDate || '').replace(/[^0-9]/g, '');
+  if (b.length >= 8) return `${b.slice(0, 4)}-${b.slice(4, 6)}-${b.slice(6, 8)}`;
+  const by = birthYearOf(m);
+  const r = String(m.rrn || '').replace(/[^0-9]/g, '');
+  if (by && r.length >= 6) return `${by}-${r.slice(2, 4)}-${r.slice(4, 6)}`;
+  return null;
+};
+
+export function buildServerInputs({ jsResult = {}, deductionData = {}, familyList = [], withholdingData = null, previousJobs = [], userName = '' } = {}) {
+  const dd = deductionData || {};
+
+  // 1) 근무지: 종(전) 근무지 + 나머지는 주(현) 근무지
+  const prevList = (Array.isArray(previousJobs) ? previousJobs : [])
+    .filter((j) => n(j.salary) > 0 || n(j.tax) > 0)
+    .map((j) => ({
+      workplace_type: 'PREVIOUS',
+      company_name: String(j.company || '종(전) 근무지').slice(0, 200),
+      gross_salary: n(j.salary),
+      prepaid_income_tax: n(j.tax),
+    }));
+  const prevSalary = prevList.reduce((s, w) => s + w.gross_salary, 0);
+  const prevTax = prevList.reduce((s, w) => s + w.prepaid_income_tax, 0);
+  const workplaces = [
+    {
+      workplace_type: 'CURRENT',
+      company_name: String(withholdingData?.companyName || withholdingData?.company || '주(현) 근무지').slice(0, 200),
+      gross_salary: Math.max(0, n(jsResult.totalSalary) - prevSalary),
+      prepaid_income_tax: Math.max(0, n(jsResult.paidIncomeTax) - prevTax),
+      prepaid_local_tax: n(jsResult.paidLocalTax),
+    },
+    ...prevList,
+  ];
+
+  // 2) 부양가족: 부양가족 단계의 판정(기본공제·소득·장애)을 그대로 전달
+  const dependents = (Array.isArray(familyList) ? familyList : []).map((m) => {
+    const isSelf = Boolean(m.isSelf || m.relation === '본인');
+    const by = birthYearOf(m);
+    const excluded = !isSelf && (m.basicDeduction === '해당없음' || shouldExcludeBasicDeduction(m));
+    return {
+      name: cleanPersonName(m.name) || (isSelf ? '본인' : '부양가족'),
+      relation: toRelation(String(m.relation || ''), isSelf),
+      birth_date: toBirthDate(m),
+      annual_income_amount: m.incomeOver === '초과함' ? 5000000 : 0,
+      is_disabled: isDisabledMember(m),
+      is_elderly: Boolean(by && 2025 - by >= 70),
+      is_basic_deduction: isSelf ? true : !excluded,
+      birth_order: 0,
+    };
+  });
+  if (!dependents.some((d) => d.relation === 'SELF')) {
+    dependents.unshift({ name: userName || '본인', relation: 'SELF', is_basic_deduction: true });
+  }
+
+  // 3) 연금: 화면 엔진이 분류한 구분별 납입액 + 2000년 이전 개인연금저축
+  const pensionPaid = jsResult.pensionAccount?.paid || {};
+  const pensionItems = collectPensionItems({ deductionData: dd, hometaxData: null, userName });
+  const personalPensionOldPaid = pensionItems
+    .filter((it) => String(it.type || '').includes('개인연금'))
+    .filter((it) => {
+      const y = parseInt(String(it.startDate || '').replace(/[^0-9]/g, '').slice(0, 4), 10);
+      return !y || y <= 2000;
+    })
+    .reduce((s, it) => s + n(it.rawAmount ?? it.amount), 0);
+
+  // 4) 장기집합투자증권 / 벤처투자조합 납입액
+  const longItems = Array.isArray(dd.longInvestItems) ? dd.longInvestItems : [];
+  const isVenture = (t = '') => t.includes('벤처') || t.includes('투자조합') || t.includes('신탁');
+  const longNonVenture = longItems.filter((it) => !isVenture(String(it.type || '')));
+  // 국세청 자료는 공제대상금액(가입요건 반영)을 그대로, 직접 입력분은 납입액을 보낸다 (화면 엔진과 같은 기준)
+  const isNtsDeductible = (it) => it.isNts && it.deductibleAmount !== undefined && it.deductibleAmount !== null;
+  const longInvestNtsDeductible = longNonVenture.filter(isNtsDeductible).reduce((s, it) => s + n(it.deductibleAmount), 0);
+  const longInvestPaid = longNonVenture.filter((it) => !isNtsDeductible(it)).reduce((s, it) => s + n(it.rawAmount ?? it.amount), 0);
+  const ventureFundPaid = longItems.filter((it) => isVenture(String(it.type || ''))).reduce((s, it) => s + n(it.rawAmount ?? it.amount), 0);
+
+  // 5) 교육비: 인별 내역('확인 필요' 미포함 항목은 제외 표시)
+  const educationDetails = (Array.isArray(dd.eduItems) ? dd.eduItems : []).map((it) => ({
+    name: cleanPersonName(it.name),
+    category: it.category || '',
+    amount: n(it.amount),
+    needs_review: Boolean(it.needsReview),
+  }));
+
+  const expense = {
+    national_pension: n(jsResult.incomeDeductions?.nationalPension),
+    health_insurance: n(jsResult.incomeDeductions?.healthInsurance),
+    employment_insurance: n(jsResult.incomeDeductions?.employmentInsurance),
+    credit_card_general: n(dd.creditCard),
+    debit_card_cash: n(dd.debitCard) + n(dd.cashReceipt),
+    market_transport: n(dd.marketCard) + n(dd.transitCard),
+    culture_sports: n(dd.cultureCard),
+    housing_subscription: n(dd.housingSavings),
+    mortgage_interest: n(dd.housingLoan),
+    personal_pension_saving: n(pensionPaid.saving),
+    irp_saving: n(pensionPaid.irp),
+    medical_general: n(dd.medicalGeneral),
+    medical_special: n(dd.medicalSpecial),
+    education_child: n(dd.education),
+    monthly_rent_paid: n(dd.rent),
+    raw_details: {
+      isa_irp_saving: n(pensionPaid.isaIrp),
+      isa_pension_saving: n(pensionPaid.isaSaving),
+      general_insurance: n(jsResult.insuranceDetails?.generalPaid),
+      disabled_insurance: n(jsResult.insuranceDetails?.disabledPaid),
+      medical_general: n(dd.medicalGeneral),
+      medical_special: n(dd.medicalSpecial),
+      medical_self: n(dd.medicalSelf),
+      medical_premature: n(dd.medicalPremature),
+      medical_infertility: n(dd.medicalInfertility),
+      donation_amount: n(dd.donation),
+      education_details: educationDetails,
+      personal_pension_old_paid: personalPensionOldPaid,
+      small_biz_paid: n(dd.smallBiz),
+      long_invest_paid: longInvestPaid,
+      long_invest_nts_deductible: longInvestNtsDeductible,
+      venture_fund_paid: ventureFundPaid,
+    },
+  };
+
+  return {
+    workplaces,
+    dependents,
+    expense,
+    is_newly_married: n(jsResult.taxCredits?.marriageCredit) > 0,
+  };
+}
+
+/** 화면 엔진 결과와 백엔드 결과를 단계별로 비교 */
+export function compareEngines(jsResult = {}, server = {}) {
+  const rows = [
+    ['총급여', jsResult.totalSalary, server.total_gross_salary],
+    ['근로소득금액', jsResult.earnedIncome, server.earned_income_amount],
+    ['인적공제', jsResult.humanDeductions?.total, server.total_personal_deduction],
+    ['과세표준', jsResult.taxBase, server.taxable_standard],
+    ['산출세액', jsResult.calculatedTax, server.calculated_tax],
+    ['결정세액(소득세)', jsResult.finalIncomeTax, server.final_decision_tax],
+    ['차감징수(소득세)', jsResult.diffIncomeTax, server.final_refund_amount],
+  ];
+  return rows.map(([label, a, b]) => ({ label, js: Math.round(Number(a) || 0), server: Math.round(Number(b) || 0), same: Math.round(Number(a) || 0) === Math.round(Number(b) || 0) }));
+}

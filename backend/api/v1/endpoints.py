@@ -24,6 +24,8 @@ from backend.schemas.tax_schema import (
     RAGSearchRequest,
     RAGSearchResponse,
     SessionCreateRequest,
+    SessionInputsRequest,
+    SessionInputsResponse,
     SessionResponse,
     TaxCalculateRequest,
     TaxCalculateResponse,
@@ -102,6 +104,52 @@ def get_session(
         created_at=session.created_at.isoformat(),
         updated_at=session.updated_at.isoformat(),
     )
+
+
+@router.put("/sessions/{session_id}/inputs", response_model=SessionInputsResponse, summary="화면 입력 자료(근무지·부양가족·공제) 저장")
+@router.put("/tax/sessions/{session_id}/inputs", response_model=SessionInputsResponse, summary="화면 입력 자료 저장 (alias)")
+def save_session_inputs(
+    session_id: str,
+    request: SessionInputsRequest,
+    current_user_id: Optional[str] = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+) -> SessionInputsResponse:
+    """세액 계산(/calculate)에 쓰일 입력 자료를 세션에 저장합니다. 기존 자료는 교체됩니다.
+    주민등록번호 원문은 받지 않으며, 생년월일·관계·소득·장애 여부만 저장합니다."""
+    from backend.models.deduction import ExpenseDeduction, WorkplaceIncome, WorkplaceType
+    from backend.models.family_member import Dependent, RelationType
+
+    session = verify_session_owner_manual(session_id, current_user_id, db)
+    sid = session.id
+    db.query(WorkplaceIncome).filter(WorkplaceIncome.session_id == sid).delete()
+    db.query(Dependent).filter(Dependent.session_id == sid).delete()
+    db.query(ExpenseDeduction).filter(ExpenseDeduction.session_id == sid).delete()
+
+    for w in request.workplaces:
+        wtype = WorkplaceType.PREVIOUS if str(w.workplace_type).upper() == "PREVIOUS" else WorkplaceType.CURRENT
+        db.add(WorkplaceIncome(
+            session_id=sid, workplace_type=wtype, company_name=w.company_name or "근무지",
+            business_number=w.business_number, gross_salary=w.gross_salary,
+            non_taxable_salary=w.non_taxable_salary, prepaid_income_tax=w.prepaid_income_tax,
+            prepaid_local_tax=w.prepaid_local_tax,
+        ))
+    for d in request.dependents:
+        try:
+            rel = RelationType(str(d.relation).upper())
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"알 수 없는 관계: {d.relation}")
+        db.add(Dependent(
+            session_id=sid, name=d.name, relation=rel, birth_date=d.birth_date,
+            annual_income_amount=d.annual_income_amount, is_disabled=d.is_disabled,
+            is_elderly=d.is_elderly, is_basic_deduction=d.is_basic_deduction, birth_order=d.birth_order,
+        ))
+    db.add(ExpenseDeduction(session_id=sid, **request.expense.model_dump()))
+    if request.is_newly_married is not None:
+        session.is_newly_married = request.is_newly_married
+    if request.is_sme_youth is not None:
+        session.is_sme_youth = request.is_sme_youth
+    db.commit()
+    return SessionInputsResponse(session_id=str(sid), workplaces=len(request.workplaces), dependents=len(request.dependents))
 
 
 # ============================================================================
