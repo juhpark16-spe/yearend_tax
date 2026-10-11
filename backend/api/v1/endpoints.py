@@ -292,7 +292,7 @@ def calculate_tax(
         final_tax=tax_result.final_decision_tax,
         prepaid_tax=tax_result.total_prepaid_tax,
         refund_amount=tax_result.final_refund_amount,
-        is_refund=tax_result.final_refund_amount <= 0,
+        is_refund=tax_result.final_refund_amount < 0,
         total_personal_deduction=tax_result.total_personal_deduction,
         total_special_income_deduction=tax_result.total_special_income_deduction,
         audit_steps_count=len(audit_logs),
@@ -390,7 +390,7 @@ def get_tax_result(
         final_decision_tax=res.final_decision_tax,
         total_prepaid_tax=res.total_prepaid_tax,
         final_refund_amount=res.final_refund_amount,
-        is_refund=res.final_refund_amount <= 0,
+        is_refund=res.final_refund_amount < 0,
         calculated_at=res.calculated_at.isoformat() if res.calculated_at else "",
         audit_logs=log_items,
     )

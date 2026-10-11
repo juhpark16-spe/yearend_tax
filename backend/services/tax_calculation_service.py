@@ -361,6 +361,63 @@ class TaxCalculationService:
     # =========================================================================
     # 6. 세액 계산 및 감사 추적 메인 파이프라인
     # =========================================================================
+    @staticmethod
+    def age_in_tax_year(birth_date: Optional[str], tax_year: int = 2025) -> Optional[int]:
+        """생년월일(YYYY-MM-DD, YYYYMMDD, YYMMDD) → 과세연도 기준 나이"""
+        digits = "".join(ch for ch in str(birth_date or "") if ch.isdigit())
+        if len(digits) >= 8:
+            year = int(digits[:4])
+        elif len(digits) >= 6:
+            yy = int(digits[:2])
+            year = 2000 + yy if yy <= tax_year % 100 else 1900 + yy
+        else:
+            return None
+        return tax_year - year
+
+    @staticmethod
+    def calculate_education_base(details: Optional[List[Dict[str, Any]]], fallback_amount: int = 0) -> Dict[str, Any]:
+        """교육비 세액공제 대상금액을 1인별·구분별 한도로 산출 (소득세법 제59조의4 ③)
+        - 본인·장애인특수교육비: 한도 없음
+        - 대학생: 1인당 900만 원 / 취학전아동·초중고: 1인당 300만 원
+        - 교복구입비 1인당 50만 원, 현장체험학습비 1인당 30만 원 (초중고 300만 원 한도 안에 포함)
+        - 대학원: 근로자 본인만 / '확인 필요'로 제외된 항목(included=False)은 제외
+        """
+        if not details:
+            # 인별 내역이 없으면 1인 기준 초중고 한도(300만 원)로 보수적으로 계산
+            base = min(3_000_000, max(0, int(fallback_amount or 0)))
+            return {"base": base, "per_person": {}, "mode": "FALLBACK_SINGLE"}
+        per: Dict[str, Dict[str, int]] = {}
+        for d in details:
+            if d.get("included") is False or d.get("needs_review"):
+                continue
+            amt = int(d.get("amount") or d.get("raw_amount") or 0)
+            if amt <= 0:
+                continue
+            name = str(d.get("name") or "본인")
+            cat = str(d.get("category") or "")
+            b = per.setdefault(name, {"self": 0, "special": 0, "univ": 0, "school": 0, "uniform": 0, "trip": 0})
+            if cat == "본인":
+                b["self"] += amt
+            elif cat == "장애인특수교육":
+                b["special"] += amt
+            elif cat == "대학생":
+                b["univ"] += amt
+            elif "교복" in cat:
+                b["uniform"] += amt
+            elif "현장학습" in cat or "체험학습" in cat:
+                b["trip"] += amt
+            elif cat == "대학원":
+                continue
+            else:
+                b["school"] += amt
+        per_person: Dict[str, int] = {}
+        for name, b in per.items():
+            school = min(3_000_000, b["school"] + min(500_000, b["uniform"]) + min(300_000, b["trip"]))
+            univ = min(9_000_000, b["univ"])
+            limited = min(9_000_000, school + univ) if (school and univ) else school + univ
+            per_person[name] = b["self"] + b["special"] + limited
+        return {"base": sum(per_person.values()), "per_person": per_person, "mode": "PER_PERSON"}
+
     def calculate_and_save(
         self,
         session_id: str,
@@ -480,8 +537,11 @@ class TaxCalculationService:
                     spouse_deduction += 1500000
                 elif dep.relation != RelationType.SELF:
                     dependents_deduction += 1500000
+                    # 자녀세액공제: 기본공제 대상 자녀 중 만 8세 이상 (생년 미상이면 포함)
                     if dep.relation == RelationType.CHILD:
-                        children_eligible_count += 1
+                        child_age = self.age_in_tax_year(dep.birth_date)
+                        if child_age is None or child_age >= 8:
+                            children_eligible_count += 1
 
                 if dep.is_elderly:
                     elderly_deduction += 1000000
@@ -770,7 +830,9 @@ class TaxCalculationService:
         med_credit = med_calc["total_credit"]
 
         edu_spent = exp.education_child if exp else 0
-        edu_credit = min(450000, math.floor(edu_spent * 0.15)) if total_salary > 0 else 0
+        edu_details = (exp.raw_details.get("education_details") if exp and exp.raw_details else None) or None
+        edu_calc = self.calculate_education_base(edu_details, edu_spent)
+        edu_credit = math.floor(edu_calc["base"] * 0.15) if total_salary > 0 else 0
 
         donation_spent = (exp.raw_details.get("donation_amount", 0) if exp and exp.raw_details else 0)
         don_credit = math.floor(min(10000000, donation_spent) * 0.15 + max(0, donation_spent - 10000000) * 0.30)
@@ -783,18 +845,51 @@ class TaxCalculationService:
             rent_rate = 0.17 if total_salary <= 55000000 else 0.15
             tax_credit_monthly_rent = math.floor(rent_paid * rent_rate)
 
-        special_pack_benefit = (
-            math.floor((health_ins + emp_ins + combined_housing_saving + mortgage_ded) * 0.15) +
-            tax_credit_special +
-            tax_credit_monthly_rent
-        )
-        standard_tax_credit = 0
-        if total_salary > 0 and special_pack_benefit < 130000:
-            standard_tax_credit = 130000
+        # 표준세액공제(13만 원)는 특별소득공제(보험료·주택자금)·특별세액공제·월세세액공제를
+        # 모두 신청하지 않는 경우에만 적용된다 (소득세법 제59조의4 ⑨). 두 경우의 세액을 실제로 계산해 유리한 쪽을 택한다.
+        def _basic_tax(taxable: int):
+            ct = self.calculate_income_tax(taxable)
+            sme = min(2000000, math.floor(ct * 0.90)) if (session.is_sme_youth and ct > 0) else 0
+            earned = self.calculate_earned_income_tax_credit(calculated_tax=ct, gross_salary=total_salary, reduction_sme=sme)
+            return ct, sme, earned
 
-        if standard_tax_credit > 0:
+        std_excess = max(0, total_other_income_deduction - 25000000)
+        std_income_deductions = total_personal_deduction + total_pension_deduction + total_other_income_deduction - std_excess
+        std_taxable = max(0, earned_income_amount - std_income_deductions)
+        std_ct, std_sme, std_earned = _basic_tax(std_taxable)
+        tax_if_special = max(0, calculated_tax - tax_reduction_sme - tax_credit_earned_income - tax_credit_special - tax_credit_monthly_rent)
+        tax_if_standard = max(0, std_ct - std_sme - std_earned - 130000)
+        special_pack_benefit = tax_if_standard + 130000 - tax_if_special  # 비교 기록용
+
+        standard_tax_credit = 0
+        if total_salary > 0 and tax_if_standard < tax_if_special:
+            standard_tax_credit = 130000
             tax_credit_special = 0
             tax_credit_monthly_rent = 0
+            # 특별소득공제를 제외한 과세표준·산출세액으로 다시 확정하고 앞 단계 감사 기록도 갱신
+            removed_special_income = total_special_income_deduction
+            taxable_standard, calculated_tax = std_taxable, std_ct
+            tax_reduction_sme, tax_credit_earned_income = std_sme, std_earned
+            total_special_income_deduction = 0
+            income_deduction_limit_excess = std_excess
+            total_income_deductions = std_income_deductions
+            note = f" (표준세액공제 선택으로 특별소득공제 {removed_special_income:,}원 미적용 기준으로 재계산)"
+            for st in audit_steps:
+                if st.get("step") == 3:
+                    st["calculated_amount"] = taxable_standard
+                    st.setdefault("output_snapshot", {})["taxable_standard"] = taxable_standard
+                    st["explanation"] = f"근로소득금액 {earned_income_amount:,}원에서 소득공제 합계 {total_income_deductions:,}원을 공제하여 과세표준 {taxable_standard:,}원이 산출되었습니다." + note
+                elif st.get("step") == 4:
+                    st["base_value"] = taxable_standard
+                    st["calculated_amount"] = calculated_tax
+                    st["output_snapshot"] = {"taxable_standard": taxable_standard, "calculated_tax": calculated_tax}
+                    st["explanation"] = f"과세표준 {taxable_standard:,}원에 대해 법정 기본세율을 적용하여 산출세액 {calculated_tax:,}원이 산출되었습니다." + note
+                elif st.get("step_name") == "중소기업 취업자 소득세 감면":
+                    st["calculated_amount"] = tax_reduction_sme
+                    st["output_snapshot"] = {"tax_reduction_sme": tax_reduction_sme}
+                elif st.get("step_name") == "근로소득 세액공제":
+                    st["calculated_amount"] = tax_credit_earned_income
+                    st["output_snapshot"] = {"tax_credit_earned_income": tax_credit_earned_income}
 
         audit_steps.append({
             "sequence_order": len(audit_steps) + 1,
@@ -1013,20 +1108,24 @@ class TaxCalculationService:
                 "final_decision_tax": final_decision_tax,
                 "total_prepaid_tax": total_prepaid_tax,
                 "final_refund_amount": final_refund_amount,
-                "is_refund": final_refund_amount <= 0,
+                "is_refund": final_refund_amount < 0,
             },
             "legal_formula": "차감징수세액 = 결정세액 - 기납부세액 (음수: 환급, 양수: 추가납부)",
             "legal_basis": "소득세법 제137조(연말정산 차감징수)",
             "explanation": (
                 f"기납부세액({total_prepaid_tax:,}원)이 결정세액({final_decision_tax:,}원)보다 많아 {abs(final_refund_amount):,}원을 환급받습니다."
-                if final_refund_amount <= 0
-                else f"결정세액({final_decision_tax:,}원)이 기납부세액({total_prepaid_tax:,}원)보다 많아 {final_refund_amount:,}원을 추가 납부해야 합니다."
+                if final_refund_amount < 0
+                else (
+                    f"결정세액({final_decision_tax:,}원)이 기납부세액({total_prepaid_tax:,}원)보다 많아 {final_refund_amount:,}원을 추가 납부해야 합니다."
+                    if final_refund_amount > 0
+                    else f"결정세액과 기납부세액({total_prepaid_tax:,}원)이 같아 환급·추가납부가 없습니다."
+                )
             ),
             "metadata_json": {
                 "final_decision_tax": final_decision_tax,
                 "total_prepaid_tax": total_prepaid_tax,
                 "final_refund_amount": final_refund_amount,
-                "is_refund": final_refund_amount <= 0,
+                "is_refund": final_refund_amount < 0,
             },
         })
 
