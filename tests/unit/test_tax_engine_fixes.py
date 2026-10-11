@@ -4,6 +4,8 @@
 - 표준세액공제 선택 시 특별소득공제 이중 적용 방지
 - 결정세액 = 기납부세액(차감 0원)일 때 환급으로 표시하지 않음
 """
+import math
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -146,3 +148,41 @@ def test_rag_explain_accepts_screen_payload_numbers_only(client, monkeypatch):
     body = res.json()
     assert body["title"] and body["summary"] and isinstance(body["page"], int)
     assert captured["payload"] == {"gross_salary": 71500000, "final_refund_amount": -3166500}
+
+
+def test_donation_credit_by_type_matches_law():
+    calc = TaxCalculationService.calculate_donation_credit
+    details = [
+        {"type": "정치자금기부금", "amount": 5_000},
+        {"type": "고향사랑기부금", "amount": 100_000},
+        {"type": "고향사랑기부금(특별재난지역)", "amount": 100_000},
+        {"type": "특례기부금", "amount": 50_000},
+        {"type": "우리사주조합기부금", "amount": 210_000},
+        {"type": "일반기부금(종교단체외)", "amount": 1_200_000},
+    ]
+    r = calc(details, earned_income=106_320_000)
+    assert r["political"] == 4_545                 # 5,000 × 100/110
+    assert r["hometown"] == 90_909 + 30_000        # 10만 × 100/110 + 특별재난 10만 × 30%
+    assert r["special"] == 7_500 and r["employee_stock"] == 31_500 and r["general"] == 180_000
+    assert r["total"] == 344_454
+    assert r["separate"] == 4_545 + 120_909 + 31_500
+
+
+def test_donation_political_hometown_only_for_self_and_limits():
+    calc = TaxCalculationService.calculate_donation_credit
+    r = calc([{"type": "정치자금기부금", "amount": 100_000, "is_self": False},
+              {"type": "고향사랑기부금", "amount": 6_000_000}], earned_income=50_000_000)
+    assert r["political"] == 0
+    assert r["hometown"] == 90_909 + math.floor(4_900_000 * 0.15)  # 연 500만 원 한도
+    fallback = calc(None, earned_income=50_000_000, fallback_amount=1_000_000)
+    assert fallback["general"] == 150_000 and fallback["mode"] == "FALLBACK_GENERAL"
+
+
+def test_separate_donation_credit_kept_with_standard_credit(db):
+    # 특별공제 없음 → 표준세액공제 선택, 고향사랑기부금 공제는 함께 적용
+    ts = _session(db, 40_000_000, prepaid=0,
+                  expense={"raw_details": {"donation_details": [{"type": "고향사랑기부금", "amount": 100_000}]}})
+    result, logs = TaxCalculationService(db).calculate_and_save(session_id=str(ts.id))
+    assert result.standard_tax_credit == 130_000
+    sep = _step(logs, 5, "정치자금·고향사랑·우리사주 기부금 세액공제")
+    assert sep.calculated_amount == 90_909

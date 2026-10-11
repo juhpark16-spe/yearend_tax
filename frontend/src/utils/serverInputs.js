@@ -3,7 +3,7 @@
  * - 주민등록번호 원문은 보내지 않는다 (생년월일·관계·소득·장애 여부만)
  * - 집계 금액은 화면 엔진(calculateSettlementTax) 결과를 그대로 사용해 두 엔진이 같은 입력을 보게 한다
  */
-import { collectPensionItems } from './taxCalculator.js';
+import { collectDonationItems, collectPensionItems } from './taxCalculator.js';
 import { birthYearOf, cleanPersonName, isDisabledMember, shouldExcludeBasicDeduction } from './eligibility.js';
 
 const n = (v) => {
@@ -102,6 +102,19 @@ export function buildServerInputs({ jsResult = {}, deductionData = {}, familyLis
     needs_review: Boolean(it.needsReview),
   }));
 
+  // 6) 기부금: 종류별 내역 (정치자금·고향사랑·우리사주는 본인 기부분만 공제 — 화면 엔진과 같은 본인 판정)
+  const donationDetails = collectDonationItems({ deductionData: dd, hometaxData: null, userName })
+    .map((it) => {
+      const pName = cleanPersonName(it.name);
+      const isSelf = !it.relation || it.relation === '본인' || (userName && pName.includes(userName)) || pName === '본인';
+      return {
+        type: String(it.type || it.raw_type || it.category || ''),
+        amount: n(it.amount),
+        is_self: Boolean(isSelf),
+      };
+    })
+    .filter((it) => it.amount > 0);
+
   const expense = {
     national_pension: n(jsResult.incomeDeductions?.nationalPension),
     health_insurance: n(jsResult.incomeDeductions?.healthInsurance),
@@ -129,6 +142,7 @@ export function buildServerInputs({ jsResult = {}, deductionData = {}, familyLis
       medical_premature: n(dd.medicalPremature),
       medical_infertility: n(dd.medicalInfertility),
       donation_amount: n(dd.donation),
+      donation_details: donationDetails,
       education_details: educationDetails,
       personal_pension_old_paid: personalPensionOldPaid,
       small_biz_paid: n(dd.smallBiz),

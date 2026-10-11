@@ -418,6 +418,91 @@ class TaxCalculationService:
             per_person[name] = b["self"] + b["special"] + limited
         return {"base": sum(per_person.values()), "per_person": per_person, "mode": "PER_PERSON"}
 
+    @staticmethod
+    def _rate_15_30(amount: int) -> int:
+        """1천만 원 이하 15%, 초과분 30%"""
+        a = max(0, int(amount))
+        return math.floor(a * 0.15) if a <= 10000000 else math.floor(10000000 * 0.15 + (a - 10000000) * 0.30)
+
+    @classmethod
+    def calculate_donation_credit(
+        cls,
+        details: Optional[List[Dict[str, Any]]],
+        earned_income: int,
+        fallback_amount: int = 0,
+    ) -> Dict[str, Any]:
+        """기부금 세액공제 (소득세법 제59조의4 ④, 조특법 제76조·제58조·제88조의4)
+        - 정치자금: 10만 원 이하 100/110, 10만~3천만 15%, 3천만 초과 25% (본인 기부분)
+        - 고향사랑: 연 500만 원 한도, 10만 원 이하 100/110, 초과분 15% (특별재난지역 30% 우선 배정) (본인 기부분)
+        - 우리사주조합: 근로소득금액 30% 한도 (본인 기부분)
+        - 특례(법정): 근로소득금액 100% 한도
+        - 일반(종교단체 외): (근로소득금액 − 특례) 30% 한도
+        - 일반(종교단체): (근로소득금액 − 특례) 10% + min(일반 잔여한도, 근로소득금액 20%)
+        - 특례·우리사주·일반: 1천만 원 이하 15%, 초과 30%
+        정치자금·고향사랑·우리사주조합 기부금은 조특법 세액공제로 표준세액공제와 함께 받을 수 있다(separate).
+        """
+        paid = {"political": 0, "home_general": 0, "home_disaster": 0, "employee_stock": 0,
+                "special": 0, "general": 0, "religious": 0}
+        if details:
+            for d in details:
+                amt = int(d.get("amount") or 0)
+                if amt <= 0:
+                    continue
+                t = str(d.get("type") or "")
+                is_self = d.get("is_self", True) is not False
+                if "정치" in t:
+                    if is_self:
+                        paid["political"] += amt
+                elif "고향" in t:
+                    if is_self:
+                        paid["home_disaster" if "특별재난" in t else "home_general"] += amt
+                elif "우리사주" in t:
+                    if is_self:
+                        paid["employee_stock"] += amt
+                elif "특례" in t or "법정" in t:
+                    paid["special"] += amt
+                elif "종교단체일반" in t.replace(" ", "") or ("종교" in t and "종교단체외" not in t.replace(" ", "")):
+                    paid["religious"] += amt
+                else:
+                    paid["general"] += amt
+        else:
+            # 종류별 내역이 없으면 종교단체 외 일반기부금으로 본다
+            paid["general"] = max(0, int(fallback_amount or 0))
+
+        ei = max(0, int(earned_income or 0))
+        pol = paid["political"]
+        political = (math.floor(min(pol, 100000) * 100 / 110)
+                     + math.floor(min(max(0, pol - 100000), 29900000) * 0.15)
+                     + math.floor(max(0, pol - 30000000) * 0.25))
+
+        home_total = min(paid["home_general"] + paid["home_disaster"], 5000000)
+        home_over = max(0, home_total - 100000)
+        home_dis_over = min(paid["home_disaster"], home_over)
+        hometown = (math.floor(min(home_total, 100000) * 100 / 110)
+                    + math.floor(home_dis_over * 0.30)
+                    + math.floor((home_over - home_dis_over) * 0.15))
+
+        spec_elig = min(paid["special"], ei)
+        special = cls._rate_15_30(spec_elig)
+        emp_elig = min(paid["employee_stock"], math.floor(ei * 0.30))
+        employee_stock = cls._rate_15_30(emp_elig)
+        gen_limit = max(0, math.floor((ei - spec_elig) * 0.30))
+        gen_elig = min(paid["general"], gen_limit)
+        general = cls._rate_15_30(gen_elig)
+        rel_limit = max(0, math.floor((ei - spec_elig) * 0.10) + min(max(0, gen_limit - gen_elig), math.floor(ei * 0.20)))
+        rel_elig = min(paid["religious"], rel_limit)
+        religious = cls._rate_15_30(rel_elig)
+
+        return {
+            "paid": paid,
+            "political": political, "hometown": hometown, "employee_stock": employee_stock,
+            "special": special, "general": general, "religious": religious,
+            "special_pack": special + general + religious,
+            "separate": political + hometown + employee_stock,
+            "total": political + hometown + employee_stock + special + general + religious,
+            "mode": "BY_TYPE" if details else "FALLBACK_GENERAL",
+        }
+
     def calculate_and_save(
         self,
         session_id: str,
@@ -864,7 +949,12 @@ class TaxCalculationService:
         edu_credit = math.floor(edu_calc["base"] * 0.15) if total_salary > 0 else 0
 
         donation_spent = (exp.raw_details.get("donation_amount", 0) if exp and exp.raw_details else 0)
-        don_credit = math.floor(min(10000000, donation_spent) * 0.15 + max(0, donation_spent - 10000000) * 0.30)
+        donation_details = (exp.raw_details.get("donation_details") if exp and exp.raw_details else None) or None
+        don_calc = self.calculate_donation_credit(donation_details, earned_income_amount, donation_spent) if total_salary > 0 else {
+            "special_pack": 0, "separate": 0, "political": 0, "hometown": 0, "employee_stock": 0,
+            "special": 0, "general": 0, "religious": 0, "mode": "NONE", "paid": {}}
+        don_credit = don_calc["special_pack"]               # 특별세액공제(특례·일반 기부금)
+        tax_credit_donation_separate = don_calc["separate"]  # 정치자금·고향사랑·우리사주조합 (표준세액공제와 병행)
 
         tax_credit_special = ins_credit + med_credit + edu_credit + don_credit
 
@@ -886,8 +976,8 @@ class TaxCalculationService:
         std_income_deductions = total_personal_deduction + total_pension_deduction + total_other_income_deduction - std_excess
         std_taxable = max(0, earned_income_amount - std_income_deductions)
         std_ct, std_sme, std_earned = _basic_tax(std_taxable)
-        tax_if_special = max(0, calculated_tax - tax_reduction_sme - tax_credit_earned_income - tax_credit_special - tax_credit_monthly_rent)
-        tax_if_standard = max(0, std_ct - std_sme - std_earned - 130000)
+        tax_if_special = max(0, calculated_tax - tax_reduction_sme - tax_credit_earned_income - tax_credit_special - tax_credit_monthly_rent - tax_credit_donation_separate)
+        tax_if_standard = max(0, std_ct - std_sme - std_earned - 130000 - tax_credit_donation_separate)
         special_pack_benefit = tax_if_standard + 130000 - tax_if_special  # 비교 기록용
 
         standard_tax_credit = 0
@@ -934,6 +1024,10 @@ class TaxCalculationService:
                 "med_credit": med_credit,
                 "edu_credit": edu_credit,
                 "don_credit": don_credit,
+                "donation_mode": don_calc["mode"],
+                "donation_special": don_calc["special"],
+                "donation_general": don_calc["general"],
+                "donation_religious": don_calc["religious"],
                 "tax_credit_special": tax_credit_special,
                 "standard_tax_credit": standard_tax_credit,
             },
@@ -962,6 +1056,37 @@ class TaxCalculationService:
                 "dis_ins_credit": dis_ins_credit,
                 "ins_credit": ins_credit,
             },
+        })
+
+        # 6-1) 정치자금·고향사랑·우리사주조합 기부금 세액공제 (조특법, 표준세액공제와 병행 가능)
+        audit_steps.append({
+            "sequence_order": len(audit_steps) + 1,
+            "step": 5,
+            "step_name": "정치자금·고향사랑·우리사주 기부금 세액공제",
+            "calculation_type": "TAX_CREDIT_DONATION_SEPARATE",
+            "input_snapshot": {
+                "political_paid": don_calc["paid"].get("political", 0),
+                "hometown_paid": don_calc["paid"].get("home_general", 0) + don_calc["paid"].get("home_disaster", 0),
+                "hometown_disaster_paid": don_calc["paid"].get("home_disaster", 0),
+                "employee_stock_paid": don_calc["paid"].get("employee_stock", 0),
+                "donation_mode": don_calc["mode"],
+            },
+            "base_value": don_calc["paid"].get("political", 0) + don_calc["paid"].get("home_general", 0)
+                          + don_calc["paid"].get("home_disaster", 0) + don_calc["paid"].get("employee_stock", 0),
+            "calculated_amount": tax_credit_donation_separate,
+            "output_snapshot": {
+                "political_credit": don_calc["political"],
+                "hometown_credit": don_calc["hometown"],
+                "employee_stock_credit": don_calc["employee_stock"],
+            },
+            "legal_formula": "정치자금·고향사랑: 10만 원 이하 100/110 + 초과분 15%(고향사랑 특별재난지역 30%, 정치자금 3천만 초과 25%) / 우리사주: 근로소득금액 30% 한도 × 15%(1천만 초과 30%)",
+            "legal_basis": "조세특례제한법 제76조(정치자금), 제58조(고향사랑기부금), 제88조의4(우리사주조합기부금)",
+            "explanation": (
+                f"정치자금 {don_calc['political']:,}원, 고향사랑 {don_calc['hometown']:,}원, 우리사주조합 {don_calc['employee_stock']:,}원의 기부금 세액공제가 적용되었습니다."
+                if tax_credit_donation_separate > 0
+                else "해당 없음: 정치자금·고향사랑·우리사주조합 기부 내역이 없습니다 (0원)."
+            ),
+            "metadata_json": {"political": don_calc["political"], "hometown": don_calc["hometown"], "employee_stock": don_calc["employee_stock"]},
         })
 
         # 7) 월세액 세액공제
@@ -1010,6 +1135,7 @@ class TaxCalculationService:
         credits_before_pension = (
             tax_credit_marriage +
             tax_credit_child +
+            tax_credit_donation_separate +
             tax_credit_special +
             tax_credit_monthly_rent +
             standard_tax_credit
@@ -1066,6 +1192,7 @@ class TaxCalculationService:
             tax_credit_marriage +
             tax_credit_pension_account +
             tax_credit_special +
+            tax_credit_donation_separate +
             tax_credit_monthly_rent +
             standard_tax_credit
         )
