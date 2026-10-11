@@ -51,6 +51,21 @@ class TaxExplainer:
             print(f"[TaxExplainer] LLM 호출 실패 또는 미설정 (Fallback 모드 작동): {e}")
             return None
 
+    @staticmethod
+    def _plain_snippet(text: str, limit: int = 160) -> str:
+        """마크다운 머리말·제목 기호·표를 걷어낸 짧은 본문 요약"""
+        body = re.sub(r"^---[\s\S]*?---\s*", "", text or "")
+        lines = []
+        for line in body.splitlines():
+            line = line.strip()
+            if not line or line.startswith("|") or set(line) <= set("-:| "):
+                continue
+            line = re.sub(r"^#+\s*", "", line)
+            line = re.sub(r"\*\*|`", "", line)
+            lines.append(line)
+        plain = " ".join(lines)
+        return plain if len(plain) <= limit else plain[:limit].rstrip() + "…"
+
     def _build_deterministic_fallback(
         self,
         top_doc: Document,
@@ -71,7 +86,12 @@ class TaxExplainer:
         calculated_tax = tax_result.get("calculated_tax", 0)
         taxable_income = tax_result.get("taxable_standard") or tax_result.get("taxable_income", 0)
 
-        refund_desc = f"{abs(refund_amount):,}원 환급 예정" if refund_amount <= 0 else f"{refund_amount:,}원 추가 납부 예정"
+        if refund_amount < 0:
+            refund_desc = f"{abs(refund_amount):,}원 환급 예정"
+        elif refund_amount > 0:
+            refund_desc = f"{refund_amount:,}원 추가 납부 예정"
+        else:
+            refund_desc = "환급·추가납부 없음"
 
         summary = (
             f"귀하의 2025년 총급여 {gross_salary:,}원에 대한 과세표준은 {taxable_income:,}원이며, "
@@ -81,7 +101,7 @@ class TaxExplainer:
         reason = (
             f"국세청 '2025년 귀속 연말정산 신고안내'({section}, p.{page})에 따르면, "
             f"{category} 항목은 법정 요건을 엄격히 적용하여 결정론적 Tax Engine에 의해 정확히 연산되었습니다.\n"
-            f"- 근거 가이드 요약: {top_doc.page_content[:200]}...\n"
+            f"- 근거 가이드 요약: {self._plain_snippet(top_doc.page_content)}\n"
             f"- 기납부세액과 최종 결정세액의 차액에 따라 {refund_desc}입니다."
         )
 
@@ -116,7 +136,11 @@ class TaxExplainer:
         search_query = f"{target_cat} {query}".strip()
 
         # 1. RAG 지식베이스 검색
-        retrieved_docs = self.retriever.retrieve(query=search_query, top_k=3, section=category)
+        try:
+            retrieved_docs = self.retriever.retrieve(query=search_query, top_k=3, section=category)
+        except Exception as e:  # 임베딩 API 장애·네트워크 차단 시에도 해설은 결정론적 경로로 응답
+            print(f"[TaxExplainer] RAG 검색 실패 (기본 문서로 대체): {e}")
+            retrieved_docs = []
         if not retrieved_docs:
             retrieved_docs = [
                 Document(

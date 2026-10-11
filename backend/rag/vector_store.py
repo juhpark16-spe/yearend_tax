@@ -144,6 +144,12 @@ class FAISSVectorStoreManager:
                 index_name=self.index_name,
                 allow_dangerous_deserialization=True,
             )
+            # 저장된 인덱스와 현재 임베딩의 차원이 다르면(예: OpenAI ↔ 로컬 임베딩 전환) 재색인
+            expected_dim = len(self.embeddings.embed_query("차원 확인"))
+            if getattr(self.vector_store.index, "d", expected_dim) != expected_dim:
+                print(f"FAISS 인덱스 차원 불일치 ({self.vector_store.index.d} != {expected_dim}) → 재색인")
+                self.vector_store = None
+                return False
             return True
         except Exception as e:
             print(f"FAISS 로드 실패 (재색인 필요): {e}")

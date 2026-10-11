@@ -23,3 +23,4 @@ class TaxExplanationRequest(BaseModel):
     section: Optional[str] = Field(None, description="공제 분류 (category alias)")
     query: Optional[str] = Field(None, description="세법 질의 (user_question alias)")
     user_question: Optional[str] = Field(None, description="사용자 질문 또는 설명 요청")
+    payload: Optional[Dict[str, Any]] = Field(None, description="세션 없이 해설할 계산 결과 수치 (화면 엔진 결과, 숫자 항목만 사용)")

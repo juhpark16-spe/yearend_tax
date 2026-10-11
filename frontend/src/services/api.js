@@ -88,6 +88,11 @@ export const taxService = {
     return response.data;
   },
   // RAG 가이드 검색
+  // 화면 계산값(수치만) 기반 AI 해설 — 세션 없이 /rag/explain 호출
+  explainResult: async ({ category, query, payload }) => {
+    const response = await api.post('/tax/rag/explain', { category, query, payload });
+    return response.data;
+  },
   searchRag: async (query, section) => {
     const response = await api.post('/tax/rag/explain', { query, section });
     return response.data;

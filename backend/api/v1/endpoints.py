@@ -341,8 +341,17 @@ def explain_tax_result(
             category=target_category,
             user_question=target_question,
         )
+    # 세션 없이 화면 계산값으로 해설: 허용된 숫자 항목만 사용 (개인정보·임의 텍스트는 버림)
+    allowed_keys = {
+        "gross_salary", "earned_income_deduction", "taxable_standard", "calculated_tax",
+        "tax_credits", "final_decision_tax", "total_prepaid_tax", "final_refund_amount",
+    }
+    safe_payload = {
+        k: int(v) for k, v in (request.payload or {}).items()
+        if k in allowed_keys and isinstance(v, (int, float)) and not isinstance(v, bool)
+    }
     return ai_svc.explain_tax_payload(
-        payload={},
+        payload=safe_payload,
         query=target_question or f"{target_category or '연말정산'} 공제 요건을 설명해 주세요.",
         category=target_category,
     )

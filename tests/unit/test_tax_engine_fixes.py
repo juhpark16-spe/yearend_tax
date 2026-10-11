@@ -122,3 +122,27 @@ def test_zero_balance_is_not_reported_as_refund(db):
     last = _step(logs, 7)
     assert last.output_snapshot["is_refund"] is False
     assert "같아" in last.explanation
+
+
+def test_rag_explain_accepts_screen_payload_numbers_only(client, monkeypatch):
+    from backend.core.config import settings
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "")  # LLM 없이 결정론적 해설 경로
+    captured = {}
+    from backend.ai import explanation_service as es
+    orig = es.TaxExplanationService.explain_tax_payload
+
+    def spy(self, payload, query="", category=None):
+        captured["payload"] = payload
+        return orig(self, payload=payload, query=query, category=category)
+
+    monkeypatch.setattr(es.TaxExplanationService, "explain_tax_payload", spy)
+    res = client.post("/api/v1/rag/explain", json={
+        "category": "연말정산 종합",
+        "query": "왜 이 금액인가요?",
+        "payload": {"gross_salary": 71500000, "final_refund_amount": -3166500,
+                    "name": "홍길동", "rrn": "900101-1234567", "calculated_tax": "abc"},
+    })
+    assert res.status_code == 200
+    body = res.json()
+    assert body["title"] and body["summary"] and isinstance(body["page"], int)
+    assert captured["payload"] == {"gross_salary": 71500000, "final_refund_amount": -3166500}
