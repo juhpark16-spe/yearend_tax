@@ -186,3 +186,25 @@ def test_separate_donation_credit_kept_with_standard_credit(db):
     assert result.standard_tax_credit == 130_000
     sep = _step(logs, 5, "정치자금·고향사랑·우리사주 기부금 세액공제")
     assert sep.calculated_amount == 90_909
+
+
+def test_credit_allocation_follows_screen_engine_order(db):
+    # 산출세액보다 공제가 많을 때 앞 순서(근로소득·보험료·의료비) 먼저, 연금계좌는 후순위로 잘린다
+    ts = _session(db, 25_000_000, prepaid=0, expense={
+        "personal_pension_saving": 6_000_000,
+        "medical_general": 20_000_000,
+        "raw_details": {"general_insurance": 1_000_000},
+    })
+    result, logs = TaxCalculationService(db).calculate_and_save(session_id=str(ts.id))
+    alloc = _step(logs, 5, "세액감면·공제 적용순서별 배분")
+    order = alloc.output_snapshot["order"]
+    assert order[:4] == ["세액감면(중소기업 취업자)", "근로소득세액공제", "혼인세액공제", "자녀세액공제"]
+    assert order[-2:] == ["연금계좌", "표준세액공제"]
+    applied = alloc.output_snapshot["applied"]
+    assert sum(applied.values()) == result.calculated_tax          # 산출세액 전액 소진
+    assert applied["연금계좌"] < alloc.input_snapshot["연금계좌"]     # 후순위라 일부만 적용
+    assert applied["보장성보험료"] == alloc.input_snapshot["보장성보험료"]
+    assert applied["의료비"] < alloc.input_snapshot["의료비"]            # 의료비에서 산출세액 소진
+    assert applied["연금계좌"] == 0
+    assert result.final_decision_tax == 0
+    assert result.tax_credit_pension_account == applied["연금계좌"]

@@ -1131,21 +1131,39 @@ class TaxCalculationService:
         pension_rate = 0.15 if total_salary <= 55000000 else 0.12
         tax_credit_pension_account_before_cap = math.floor(pension_account_total * pension_rate)
 
-        # 앞선 감면·공제를 차감하고 남은 산출세액 범위 안에서만 연금계좌세액공제 적용
-        credits_before_pension = (
-            tax_credit_marriage +
-            tax_credit_child +
-            tax_credit_donation_separate +
-            tax_credit_special +
-            tax_credit_monthly_rent +
-            standard_tax_credit
-        )
+        # ---------------------------------------------------------------------
+        # 세액감면·공제 적용순서 (화면 엔진 taxCalculator.js와 동일)
+        #   세액감면 → 근로소득 → 혼인 → 자녀 → 보장성보험 → 의료비 → 교육비 → 정치자금 → 고향사랑
+        #   → 월세 → 특례기부 → 우리사주기부 → 일반기부 → 연금계좌(후순위) → 표준세액공제
+        # 각 공제는 앞선 감면·공제를 차감하고 남은 산출세액 범위 안에서만 적용된다.
+        # ---------------------------------------------------------------------
+        uses_special = standard_tax_credit == 0
+        credit_order = [
+            ("세액감면(중소기업 취업자)", tax_reduction_sme),
+            ("근로소득세액공제", tax_credit_earned_income),
+            ("혼인세액공제", tax_credit_marriage),
+            ("자녀세액공제", tax_credit_child),
+            ("보장성보험료", ins_credit if uses_special else 0),
+            ("의료비", med_credit if uses_special else 0),
+            ("교육비", edu_credit if uses_special else 0),
+            ("정치자금기부금", don_calc["political"]),
+            ("고향사랑기부금", don_calc["hometown"]),
+            ("월세액", tax_credit_monthly_rent),
+            ("특례기부금", don_calc["special"] if uses_special else 0),
+            ("우리사주조합기부금", don_calc["employee_stock"]),
+            ("일반기부금", (don_calc["general"] + don_calc["religious"]) if uses_special else 0),
+            ("연금계좌", tax_credit_pension_account_before_cap),
+            ("표준세액공제", standard_tax_credit),
+        ]
+        remaining_tax = max(0, calculated_tax)
+        credit_allocation = []
+        for label, amount in credit_order:
+            applied = min(max(0, int(amount or 0)), remaining_tax)
+            remaining_tax -= applied
+            credit_allocation.append({"label": label, "computed": int(amount or 0), "applied": applied})
+        applied_map = {c["label"]: c["applied"] for c in credit_allocation}
+        tax_credit_pension_account = applied_map["연금계좌"]
         available_tax_after_reduction = max(0, calculated_tax - tax_reduction_sme)
-        remaining_before_pension = max(
-            0,
-            available_tax_after_reduction - min(available_tax_after_reduction, tax_credit_earned_income + credits_before_pension),
-        )
-        tax_credit_pension_account = min(tax_credit_pension_account_before_cap, remaining_before_pension)
 
         audit_steps.append({
             "sequence_order": len(audit_steps) + 1,
@@ -1189,18 +1207,33 @@ class TaxCalculationService:
         # 세액감면·공제 적용순서: 세액감면 → 근로소득 → 결혼 → 자녀 → 보장성보험 → 의료비 → 교육비 → 기부(정치·고향)
         #   → (표준) → 납세조합 → 주택차입금 → 월세 → 특례·우리사주·일반기부 → 외국납부 → 연금계좌(후순위)
 
-        raw_tax_credits = (
-            tax_credit_earned_income +
-            tax_credit_child +
-            tax_credit_marriage +
-            tax_credit_pension_account +
-            tax_credit_special +
-            tax_credit_donation_separate +
-            tax_credit_monthly_rent +
-            standard_tax_credit
-        )
+        # 적용순서대로 배분한 실제 적용액 합계 (세액감면 제외분이 세액공제 합계)
+        final_tax_credits = sum(c["applied"] for c in credit_allocation) - applied_map["세액감면(중소기업 취업자)"]
 
-        final_tax_credits = min(available_tax_after_reduction, raw_tax_credits)
+        audit_steps.append({
+            "sequence_order": len(audit_steps) + 1,
+            "step": 5,
+            "step_name": "세액감면·공제 적용순서별 배분",
+            "calculation_type": "TAX_CREDIT_ALLOCATION",
+            "input_snapshot": {c["label"]: c["computed"] for c in credit_allocation},
+            "base_value": calculated_tax,
+            "calculated_amount": final_tax_credits + applied_map["세액감면(중소기업 취업자)"],
+            "output_snapshot": {"applied": {c["label"]: c["applied"] for c in credit_allocation},
+                                "order": [c["label"] for c in credit_allocation]},
+            "legal_formula": "산출세액 범위 안에서 세액감면 → 근로소득 → 혼인 → 자녀 → 보험료 → 의료비 → 교육비 → 정치자금 → 고향사랑 → 월세 → 특례·우리사주·일반기부 → 연금계좌 → 표준세액공제 순으로 차감",
+            "legal_basis": "소득세법 제60조(세액공제 적용의 순서 등), 조세특례제한법 제127조",
+            "explanation": (
+                "산출세액이 부족해 일부 공제가 다 적용되지 못했습니다: "
+                + ", ".join(f"{c['label']} {c['computed'] - c['applied']:,}원" for c in credit_allocation if c["applied"] < c["computed"])
+                if any(c["applied"] < c["computed"] for c in credit_allocation)
+                else (
+                    "모든 세액감면·공제가 산출세액 범위 안에서 전액 적용되었습니다."
+                    if any(c["applied"] > 0 for c in credit_allocation)
+                    else "해당 없음: 적용할 세액감면·공제가 없습니다 (0원)."
+                )
+            ),
+            "metadata_json": {"remaining_tax": remaining_tax},
+        })
 
         # ---------------------------------------------------------------------
         # STEP 6. 결정세액 확정 (Step 6)

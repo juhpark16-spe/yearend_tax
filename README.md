@@ -48,7 +48,7 @@ flowchart LR
 ### 현재 구현 범위 메모
 * 화면(④ 공제자료 입력 ~ ⑥ AI 리포트)의 예상세액·리포트는 브라우저의 `taxCalculator.js`가 백엔드와 같은 법정 수식으로 즉시 계산합니다.
 * AI 리포트의 **'AI 근거 보기'**는 화면 계산값(숫자만)을 `/rag/explain`에 보내 국세청 안내서 출처가 담긴 해설을 받아 보여줍니다.
-* AI 리포트의 **'서버 교차검증'**은 화면 입력을 `PUT /sessions/{id}/inputs`로 저장하고 `/calculate`로 백엔드 Python 엔진이 다시 계산한 뒤, 7개 단계와 세액공제·감면 항목별 산출액(산출세액 한도 적용 전)을 화면 엔진과 비교하고 `/audit` 감사 로그(단계별 수식·근거 조항)를 보여줍니다. 고길동 샘플 기준 7개 단계가 모두 일치합니다.
+* AI 리포트의 **'서버 교차검증'**은 화면 입력을 `PUT /sessions/{id}/inputs`로 저장하고 `/calculate`로 백엔드 Python 엔진이 다시 계산한 뒤, 7개 단계와 세액공제·감면 항목별 산출액(산출세액 한도 적용 전)과 적용 순서별 실제 적용액을 화면 엔진과 비교하고 `/audit` 감사 로그(단계별 수식·근거 조항)를 보여줍니다. 고길동 샘플 기준 7개 단계가 모두 일치합니다.
 * 부양가족 검증(`/validate`)은 구현·테스트되어 있으며 화면 연동은 다음 과제입니다.
 
 ---
@@ -61,7 +61,7 @@ flowchart LR
 | **Frontend** | `React 18`, `Vite 5`, `Tailwind CSS`, `Lucide React`, `Supabase Auth`, `React.lazy (코드 분할)` |
 | **AI & RAG** | `LangChain`, `FAISS Vector Store`, `국세청 연말정산 공식 가이드라인 RAG`, `GPT-4o (설명 생성용)` |
 | **Security** | `In-Memory PII Masker`, `Supabase JWT 서명 검증(JWKS/HS256) & IDOR Guard`, `Client-Side Recursive PII Sanitization` |
-| **Testing** | `Pytest` 단위·통합 테스트 107개 (RAG 4개는 OpenAI API·네트워크 필요) |
+| **Testing** | `Pytest` 단위·통합 테스트 108개 (RAG 4개는 OpenAI API·네트워크 필요) |
 
 ---
 
@@ -195,7 +195,7 @@ yearend_tax/
 │       ├── tax_rates.py        # 2025년 기본세율, 누진공제, 한도액 정의
 │       └── __init__.py
 ├── rag_data/                   # 국세청 공식 가이드라인 원본 PDF 및 Vector DB
-├── tests/                      # Pytest 테스트 스위트 (107개)
+├── tests/                      # Pytest 테스트 스위트 (108개)
 │   ├── unit/                   # 단위 테스트
 │   │   ├── test_tax_engine.py          # 세액 계산 엔진 단위 테스트
 │   │   ├── test_rule_engine.py         # 규칙 검증 엔진 단위 테스트
@@ -305,4 +305,4 @@ yearend_tax/
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -v tests/
 ```
-(총 107개 단위·통합 테스트. `test_rag_system.py` 등 RAG 4개는 OpenAI API 키와 네트워크가 있어야 통과합니다)
+(총 108개 단위·통합 테스트. `test_rag_system.py` 등 RAG 4개는 OpenAI API 키와 네트워크가 있어야 통과합니다)

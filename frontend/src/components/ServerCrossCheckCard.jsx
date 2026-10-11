@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { taxService } from '../services/api';
-import { buildServerInputs, compareCredits, compareEngines } from '../utils/serverInputs';
+import { buildServerInputs, compareAppliedCredits, compareCredits, compareEngines } from '../utils/serverInputs';
 import { getSecureItem } from '../utils/secureStorage';
 
 const SESSION_KEY = 'selftax_server_session_id';
@@ -15,6 +15,7 @@ export default function ServerCrossCheckCard({ jsResult, userName = '' }) {
   const [state, setState] = useState('idle'); // idle | running | done | error
   const [rows, setRows] = useState([]);
   const [creditRows, setCreditRows] = useState([]);
+  const [appliedRows, setAppliedRows] = useState([]);
   const [logs, setLogs] = useState([]);
   const [error, setError] = useState('');
   const [openLogs, setOpenLogs] = useState(false);
@@ -58,6 +59,7 @@ export default function ServerCrossCheckCard({ jsResult, userName = '' }) {
       const auditLogs = Array.isArray(audit?.logs) ? audit.logs : [];
       setRows(compareEngines(jsResult, result));
       setCreditRows(compareCredits(jsResult, auditLogs, result));
+      setAppliedRows(compareAppliedCredits(jsResult, auditLogs));
       setLogs(auditLogs);
       setState('done');
     } catch (e) {
@@ -69,6 +71,8 @@ export default function ServerCrossCheckCard({ jsResult, userName = '' }) {
   const allSame = rows.length > 0 && rows.every((r) => r.same);
   const creditDiffs = creditRows.filter((r) => !r.same && !r.total);
   const visibleCreditRows = creditRows.filter((r) => r.total || r.js !== 0 || r.server !== 0);
+  const appliedDiffs = appliedRows.filter((r) => !r.same);
+  const visibleAppliedRows = appliedRows.filter((r) => r.js !== 0 || r.server !== 0);
 
   return (
     <div className="w-full bg-white rounded-3xl border border-slate-200 shadow-2xs p-5 space-y-3">
@@ -130,6 +134,32 @@ export default function ServerCrossCheckCard({ jsResult, userName = '' }) {
                   key={r.label}
                   className={`grid grid-cols-[1.2fr_1fr_1fr_44px] px-3 py-2 text-xs border-t ${r.total ? 'border-slate-200 bg-slate-50/70 font-bold' : 'border-slate-100'}`}
                 >
+                  <span className="font-semibold text-slate-700">{r.label}</span>
+                  <span className="text-right font-mono text-slate-900">{won(r.js)}</span>
+                  <span className="text-right font-mono text-slate-900">{won(r.server)}</span>
+                  <span className={`text-center font-bold ${r.same ? 'text-emerald-600' : 'text-amber-600'}`}>{r.same ? '일치' : '차이'}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="pt-1">
+            <div className="flex items-end justify-between gap-2 px-1 pb-1.5">
+              <p className="text-[12.5px] font-extrabold text-slate-800">산출세액 한도 배분 (적용 순서별 실제 적용액)</p>
+              <p className="text-[10.5px] text-slate-400">두 엔진 동일 순서 · 0원 항목 생략</p>
+            </div>
+            <div className={`rounded-xl px-3 py-2 mb-2 text-xs font-bold border ${appliedDiffs.length === 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
+              {appliedDiffs.length === 0
+                ? '✓ 적용 순서와 항목별 실제 적용액도 두 엔진이 같습니다.'
+                : `적용액이 다른 항목: ${appliedDiffs.map((r) => r.label).join(', ')}`}
+            </div>
+            <div className="rounded-2xl border border-slate-100 overflow-hidden">
+              <div className="grid grid-cols-[28px_1.2fr_1fr_1fr_44px] bg-slate-50 text-[11px] font-bold text-slate-500 px-3 py-2">
+                <span>순서</span><span>항목</span><span className="text-right">화면 엔진</span><span className="text-right">백엔드 엔진</span><span className="text-center">결과</span>
+              </div>
+              {visibleAppliedRows.map((r) => (
+                <div key={r.label} className="grid grid-cols-[28px_1.2fr_1fr_1fr_44px] px-3 py-2 text-xs border-t border-slate-100">
+                  <span className="text-slate-400 font-mono">{r.order}</span>
                   <span className="font-semibold text-slate-700">{r.label}</span>
                   <span className="text-right font-mono text-slate-900">{won(r.js)}</span>
                   <span className="text-right font-mono text-slate-900">{won(r.server)}</span>

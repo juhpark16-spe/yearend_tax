@@ -212,3 +212,36 @@ export function compareCredits(jsResult = {}, auditLogs = [], server = {}) {
   items.push({ label: '적용 합계 (산출세액 한도 반영)', js: appliedJs, server: appliedServer, same: appliedJs === appliedServer, total: true });
   return items;
 }
+
+/**
+ * 세액감면·공제 적용순서별 실제 적용액 비교 (산출세액 한도 배분)
+ * - 두 엔진 모두 같은 순서(세액감면 → 근로소득 → … → 연금계좌 → 표준세액공제)로 남은 산출세액 안에서 차감한다.
+ */
+export const CREDIT_APPLY_ORDER = [
+  ['세액감면(중소기업 취업자)', 'appliedSmeReduction'],
+  ['근로소득세액공제', 'appliedEarnedIncomeCredit'],
+  ['혼인세액공제', 'appliedMarriageCredit'],
+  ['자녀세액공제', 'appliedChildCredit'],
+  ['보장성보험료', 'appliedInsuranceCredit'],
+  ['의료비', 'appliedMedicalCredit'],
+  ['교육비', 'appliedEducationCredit'],
+  ['정치자금기부금', 'appliedPoliticalDonationCredit'],
+  ['고향사랑기부금', 'appliedHometownDonationCredit'],
+  ['월세액', 'appliedRentCredit'],
+  ['특례기부금', 'appliedSpecialDonationCredit'],
+  ['우리사주조합기부금', 'appliedEmployeeStockDonationCredit'],
+  ['일반기부금', 'appliedGeneralDonationCredit'],
+  ['연금계좌', 'appliedPensionCredit'],
+  ['표준세액공제', 'standardCredit'],
+];
+
+export function compareAppliedCredits(jsResult = {}, auditLogs = []) {
+  const tc = jsResult.taxCredits || {};
+  const alloc = (auditLogs || []).find((l) => l.step_name === '세액감면·공제 적용순서별 배분') || {};
+  const applied = (alloc.output_snapshot || {}).applied || {};
+  return CREDIT_APPLY_ORDER.map(([label, jsKey], idx) => {
+    const js = Math.round(Number(tc[jsKey]) || 0);
+    const server = Math.round(Number(applied[label]) || 0);
+    return { order: idx + 1, label, js, server, same: js === server };
+  });
+}
