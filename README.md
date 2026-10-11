@@ -47,7 +47,8 @@ flowchart LR
 
 ### 현재 구현 범위 메모
 * 화면(④ 공제자료 입력 ~ ⑥ AI 리포트)의 예상세액·리포트는 브라우저의 `taxCalculator.js`가 백엔드와 같은 법정 수식으로 즉시 계산합니다.
-* 백엔드의 세액 엔진(`/calculate`), 감사 로그(`/audit`), AI 해설(`/rag/explain`), 부양가족 검증(`/validate`)은 구현·테스트되어 있으며 화면 연동은 다음 단계 과제입니다. 화면이 서버에 보내는 요청은 현재 PDF 업로드(`/upload`)입니다.
+* AI 리포트의 **'AI 근거 보기'**는 화면 계산값(숫자만)을 `/rag/explain`에 보내 국세청 안내서 출처가 담긴 해설을 받아 보여줍니다.
+* 백엔드의 세액 엔진(`/calculate`), 감사 로그(`/audit`), 부양가족 검증(`/validate`)은 구현·테스트되어 있으며 화면 연동은 다음 단계 과제입니다.
 
 ---
 
@@ -59,7 +60,7 @@ flowchart LR
 | **Frontend** | `React 18`, `Vite 5`, `Tailwind CSS`, `Lucide React`, `Supabase Auth`, `React.lazy (코드 분할)` |
 | **AI & RAG** | `LangChain`, `FAISS Vector Store`, `국세청 연말정산 공식 가이드라인 RAG`, `GPT-4o (설명 생성용)` |
 | **Security** | `In-Memory PII Masker`, `Supabase JWT 서명 검증(JWKS/HS256) & IDOR Guard`, `Client-Side Recursive PII Sanitization` |
-| **Testing** | `Pytest` 단위·통합 테스트 92개 (RAG 4개는 OpenAI API·네트워크 필요) |
+| **Testing** | `Pytest` 단위·통합 테스트 100개 (RAG 4개는 OpenAI API·네트워크 필요) |
 
 ---
 
@@ -193,7 +194,7 @@ yearend_tax/
 │       ├── tax_rates.py        # 2025년 기본세율, 누진공제, 한도액 정의
 │       └── __init__.py
 ├── rag_data/                   # 국세청 공식 가이드라인 원본 PDF 및 Vector DB
-├── tests/                      # Pytest 테스트 스위트 (92개)
+├── tests/                      # Pytest 테스트 스위트 (100개)
 │   ├── unit/                   # 단위 테스트
 │   │   ├── test_tax_engine.py          # 세액 계산 엔진 단위 테스트
 │   │   ├── test_rule_engine.py         # 규칙 검증 엔진 단위 테스트
@@ -203,7 +204,8 @@ yearend_tax/
 │   │   ├── test_rag_system.py          # RAG 벡터 검색 단위 테스트
 │   │   ├── test_upload_validation.py   # 파일 업로드 유효성 테스트
 │   │   ├── test_nts_sections.py        # 간소화 섹션 파서 (가족 이름을 바꿔도 같은 결과)
-│   │   └── test_jwt_verification.py    # JWT 위조·만료·데모토큰·IDOR 차단 테스트
+│   │   ├── test_jwt_verification.py    # JWT 위조·만료·데모토큰·IDOR 차단 테스트
+│   │   └── test_tax_engine_fixes.py    # 자녀 8세·교육비 인별 한도·표준세액공제·차감 0원 테스트
 │   ├── integration/            # 통합 테스트
 │   │   └── test_api_v1.py              # v1 API 엔드포인트 통합 테스트
 │   └── conftest.py             # 테스트 픽스처
@@ -300,4 +302,4 @@ yearend_tax/
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -v tests/
 ```
-(총 92개 단위·통합 테스트. `test_rag_system.py` 등 RAG 4개는 OpenAI API 키와 네트워크가 있어야 통과합니다)
+(총 100개 단위·통합 테스트. `test_rag_system.py` 등 RAG 4개는 OpenAI API 키와 네트워크가 있어야 통과합니다)
