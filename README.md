@@ -101,11 +101,10 @@ yearend_tax/
 │   │   ├── pdf_parser.py       # pdfplumber 기반 PDF 파서
 │   │   ├── extractor.py        # 간소화/원천징수 항목별 세부 추출기
 │   │   ├── classifier.py       # 업로드 문서 유형 분류기
-│   │   ├── nts_sections.py     # 간소화 보장성보험·교육비 섹션 구조 파서 (이름 무관 판정)
-│   │   └── pii_masker.py       # (미사용, 정리 예정) — 실제 마스킹은 security/pii_mask.py
+│   │   └── nts_sections.py     # 간소화 보장성보험·교육비 섹션 구조 파서 (이름 무관 판정)
 │   ├── security/               # 인증/인가 및 개인정보 보호
 │   │   ├── auth.py             # Supabase JWT 서명·만료 검증 및 IDOR 방어 가드
-│   │   └── pii_mask.py         # 민감정보 정규식 마스킹
+│   │   └── pii_mask.py         # 주민등록번호·주소·전화번호 마스킹 (업로드 직후 인메모리)
 │   ├── services/               # 비즈니스 로직 서비스 계층
 │   │   ├── tax_calculation_service.py # 세액 계산 통합 서비스
 │   │   ├── document_service.py        # 문서 업로드/파싱 처리 서비스
