@@ -173,7 +173,9 @@ def test_donation_political_hometown_only_for_self_and_limits():
     r = calc([{"type": "정치자금기부금", "amount": 100_000, "is_self": False},
               {"type": "고향사랑기부금", "amount": 6_000_000}], earned_income=50_000_000)
     assert r["political"] == 0
-    assert r["hometown"] == 90_909 + math.floor(4_900_000 * 0.15)  # 연 500만 원 한도
+    assert r["hometown"] == 90_909 + math.floor(5_900_000 * 0.15)  # 2025년 기부분부터 연 2,000만 원 한도
+    capped = calc([{"type": "고향사랑기부금", "amount": 25_000_000}], earned_income=50_000_000)
+    assert capped["hometown"] == 90_909 + math.floor(19_900_000 * 0.15)
     fallback = calc(None, earned_income=50_000_000, fallback_amount=1_000_000)
     assert fallback["general"] == 150_000 and fallback["mode"] == "FALLBACK_GENERAL"
 
@@ -193,8 +195,10 @@ LEGAL_CREDIT_ORDER = [
     # 이월공제 불가
     "근로소득세액공제", "혼인세액공제", "자녀세액공제", "보장성보험료", "의료비", "교육비",
     "정치자금기부금", "고향사랑기부금", "우리사주조합기부금", "표준세액공제", "월세액",
-    # 이월공제 가능 (소득세법 제61조)
-    "특례기부금", "일반기부금(종교단체 외)", "일반기부금(종교단체)",
+    # 이월공제 가능 (소득세법 제61조) — 같은 종류는 전년도 이월분 먼저
+    "특례기부금(이월분)", "특례기부금",
+    "일반기부금(종교단체 외·이월분)", "일반기부금(종교단체 외)",
+    "일반기부금(종교단체·이월분)", "일반기부금(종교단체)",
     # 초과분 미공제 간주
     "연금계좌",
 ]
@@ -236,8 +240,45 @@ def test_carryover_donation_applied_after_non_carryover_and_reported(db):
     assert groups["특례기부금"] == "이월공제 가능" and groups["우리사주조합기부금"] == "이월공제 불가"
     assert applied["의료비"] == computed["의료비"]                       # 이월 불가 공제 먼저 전액
     assert applied["연금계좌"] == 0
-    carry = sum(computed[k] - applied[k] for k in ("특례기부금", "일반기부금(종교단체 외)", "일반기부금(종교단체)"))
+    carry = sum(computed[k] - applied[k] for k, g in groups.items() if g == "이월공제 가능")
     assert carry > 0
     assert alloc.output_snapshot["donation_carryover_credit"] == carry
     assert "이월공제 대상" in alloc.explanation
     assert result.final_decision_tax == 0
+
+
+def test_donation_limits_are_sequential_and_rate_tier_is_combined():
+    calc = TaxCalculationService.calculate_donation_credit
+    # 특례 800만 + 일반(종교단체 외) 500만: 1천만 원 구간은 특례→일반 순으로 합산 적용
+    r = calc([{"type": "특례기부금", "amount": 8_000_000},
+              {"type": "일반기부금(종교단체외)", "amount": 5_000_000}], earned_income=60_000_000)
+    assert r["special"] == 1_200_000                       # 800만 × 15%
+    assert r["general"] == math.floor(2_000_000 * 0.15 + 3_000_000 * 0.30)
+    # 일반 한도 = (근로소득금액 − 특례) × 30%
+    r2 = calc([{"type": "특례기부금", "amount": 4_000_000},
+               {"type": "일반기부금(종교단체외)", "amount": 9_000_000}], earned_income=20_000_000)
+    assert r2["chunks"]["general"]["amount"] == math.floor(16_000_000 * 0.30)
+    assert r2["limit_excess"]["general"] == 9_000_000 - 4_800_000
+
+
+def test_carryover_donation_uses_limit_first_oldest_year_first():
+    calc = TaxCalculationService.calculate_donation_credit
+    r = calc([{"type": "일반기부금(종교단체외)", "amount": 3_000_000}], earned_income=10_000_000,
+             carryover=[{"year": 2022, "type": "일반기부금(종교단체외)", "amount": 1_000_000},
+                        {"year": 2019, "type": "일반기부금(종교단체외)", "amount": 1_500_000},
+                        {"year": 2014, "type": "특례기부금", "amount": 900_000}])   # 10년 경과 → 제외
+    # 일반 한도 300만: 이월 2019(150만) → 2022(100만) → 당해 50만
+    used = {e["year"]: e["used"] for e in r["carryover_entries"]}
+    assert used == {2019: 1_500_000, 2022: 1_000_000}
+    assert r["chunks"]["general_carry"]["amount"] == 2_500_000
+    assert r["chunks"]["general"]["amount"] == 500_000
+    assert r["limit_excess"]["general"] == 2_500_000
+
+
+def test_standard_credit_compares_full_final_tax(db):
+    # 의료비 소액·연금계좌만 있는 경우: 두 경우 결정세액을 끝까지 비교해 유리한 쪽 선택
+    ts = _session(db, 30_000_000, prepaid=0, expense={"medical_general": 1_000_000})
+    result, logs = TaxCalculationService(db).calculate_and_save(session_id=str(ts.id))
+    cmp_step = _step(logs, 5, "특별세액공제 및 표준세액공제 비교")
+    snap = cmp_step.input_snapshot
+    assert result.final_decision_tax == min(snap["final_tax_if_special"], snap["final_tax_if_standard"])

@@ -10,8 +10,9 @@ import PensionSection, { calculatePensionDisplayMap } from '../components/tax_se
 import SmallBizSection from '../components/tax_sections/SmallBizSection';
 import LongInvestSection, { calculateLongInvestDeductible } from '../components/tax_sections/LongInvestSection';
 import OtherDeductSection from '../components/tax_sections/OtherDeductSection';
+import DonationCarryoverSection from '../components/tax_sections/DonationCarryoverSection';
 import { getSecureItem, setSecureItem, maskLandlordId, maskRrn } from '../utils/secureStorage';
-import { calculateEarnedIncomeDeduction } from '../utils/taxCalculator';
+import { calculateEarnedIncomeDeduction, calculateSettlementTax } from '../utils/taxCalculator';
 import { shouldExcludeBasicDeduction } from '../utils/eligibility';
 
 /**
@@ -2630,6 +2631,45 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
     }
   });
 
+  // 전년도 이월 기부금 (소득세법 제61조: 특례·일반기부금 10년 이월) — localStorage 보존
+  const [donationCarryoverItems, setDonationCarryoverItems] = useState(() => {
+    try {
+      const saved = localStorage.getItem('selftax_donation_carryover');
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('selftax_donation_carryover', JSON.stringify(donationCarryoverItems));
+    } catch {
+      /* 저장 실패 시 화면 상태만 유지 */
+    }
+  }, [donationCarryoverItems]);
+
+  // 이월 기부금 공제·다음 해 이월 예상 (예상세액 계산과 같은 엔진으로 미리보기)
+  const donationCarryoverPreview = useMemo(() => {
+    if (!donationCarryoverItems.length) return null;
+    try {
+      const wh = getSecureItem('selftax_withholding_data');
+      const saved = getSecureItem('selftax_deduction_data') || {};
+      const r = calculateSettlementTax({
+        userName: loggedInWorkerName,
+        taxYear: '2025',
+        withholdingData: wh ? { ...wh, totalSalary: Number(wh.totalSalary ?? wh.gross_salary ?? wh.salary ?? 0) } : null,
+        previousJobs: getSecureItem('selftax_previous_jobs', []) || [],
+        deductionData: { ...saved, donationItems, donationCarryoverItems },
+        hometaxData: getSecureItem('hometax_extracted_data'),
+        familyList: getSecureItem('selftax_family_list', []) || [],
+      });
+      return r?.taxCredits?.donationCarryoverNext || null;
+    } catch {
+      return null;
+    }
+  }, [donationCarryoverItems, donationItems, loggedInWorkerName]);
+
   // 아코디언 상태 (국세청자료 & 기타자료 인별 아코디언)
   const [expandedDonationMembers, setExpandedDonationMembers] = useState({});
   const [expandedOtherDonationMembers, setExpandedOtherDonationMembers] = useState({});
@@ -4146,6 +4186,7 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
         housingSavingsItems,
         pensionItems,
         donationItems,
+        donationCarryoverItems,
         smallBizItems,
         longInvestItems,
         housingLoanChecklistAnswer,
@@ -4164,6 +4205,7 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
         (housingSavingsItems && housingSavingsItems.length > 0) ||
         (pensionItems && pensionItems.length > 0) ||
         (donationItems && donationItems.length > 0) ||
+        (donationCarryoverItems && donationCarryoverItems.length > 0) ||
         (smallBizItems && smallBizItems.length > 0) ||
         (longInvestItems && longInvestItems.length > 0) ||
         (otherDeductItems && otherDeductItems.length > 0)
@@ -4198,6 +4240,7 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
     totalHousingSavingsLimitAmount,
     totalPensionAmount,
     donationItems,
+    donationCarryoverItems,
     totalSmallBizAmount,
     totalSmallBizLimitAmount,
     totalLongInvestAmount,
@@ -6135,16 +6178,13 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
                 )}
               </>
             ) : (
-              /* 전년도 기부금 탭 */
-              <div className="flex flex-col items-center justify-center py-16 text-center space-y-3">
-                <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center text-2xl text-slate-400">
-                  📁
-                </div>
-                <div className="text-sm font-bold text-slate-700">전년도 이월 기부금 내역이 없습니다.</div>
-                <p className="text-xs text-slate-400 max-w-xs leading-relaxed">
-                  전년도에 한도 초과로 이월된 법정·지정기부금이 있는 경우 이곳에서 확인하실 수 있습니다.
-                </p>
-              </div>
+              /* 전년도 기부금 탭: 이월 기부금 입력 */
+              <DonationCarryoverSection
+                items={donationCarryoverItems}
+                onChange={setDonationCarryoverItems}
+                taxYear={2025}
+                carryoverNext={donationCarryoverPreview}
+              />
             )}
           </div>
 

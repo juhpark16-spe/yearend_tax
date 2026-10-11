@@ -8,10 +8,16 @@
  *    - 인적공제: 본인, 배우자, 부양가족, 경로우대, 장애인 등
  *    - 소득공제: 국민연금, 건강보험, 고용보험, 주택자금, 주택마련저축, 신용카드, 노란우산, 장기펀드
  *    - 세액감면/세액공제: 근로소득세액공제, 자녀세액공제, 연금계좌, 보장성보험, 의료비, 교육비, 기부금, 혼인, 월세액
+ *    - 전년도 이월 기부금(특례·일반, 10년): deductionData.donationCarryoverItems
+ *
+ * 계산 흐름 (백엔드 TaxCalculationService와 같은 규칙):
+ *  총급여 → 근로소득공제 → 근로소득금액 → 인적공제·소득공제(종합한도 2,500만원) → 과세표준 → 산출세액
+ *  → [특별세액공제 vs 표준세액공제: 두 경우 결정세액 비교, 표준 쪽은 특별소득공제 제외 후 재계산]
+ *  → 세액감면·공제를 소득세법 제60조 순서로 산출세액 범위 안에서 배분 → 결정세액 → 차감징수(환급)세액
  */
 
 import { classifyPensionType, calculatePensionAccountCredit } from './pensionLimit.js';
-import { cleanPersonName, failsAgeRequirement, isIncomeExcessMember } from './eligibility.js';
+import { birthOrderOf, isNewbornOrAdopted, shouldExcludeBasicDeduction, cleanPersonName, failsAgeRequirement, isIncomeExcessMember } from './eligibility.js';
 
 /**
  * 연금저축/연금계좌 조회페이지(PensionSection)의 연금 항목 목록 수집 헬퍼
@@ -212,52 +218,59 @@ export function collectDonationItems({ deductionData, hometaxData, userName = ''
 }
 
 /**
- * 기부금 세액공제 정밀 계산 (소득세법 제59조의4 제4항, 조세특례제한법 제76조, 제58조, 제88조의4)
- * - 정치자금기부금(10만원 이하 100/110, 10만원 초과 15%, 3천만원 초과 25%)
- * - 고향사랑기부금(10만원 이하 100/110, 특별재난지역 10만원 초과 30%, 일반 10만원 초과 15%)
- * - 우리사주조합기부금(근로소득금액 30% 한도, 1천만원 이하 15%, 1천만원 초과 30%)
- * - 특례(법정)기부금(근로소득금액 100% 한도, 1천만원 이하 15%, 1천만원 초과 30%)
- * - 종교단체외 일반(지정)기부금((근로소득금액 - 특례) 30% 한도, 1천만원 이하 15%, 1천만원 초과 30%)
- * - 종교단체 일반(지정)기부금((근로소득금액 - 특례) 10% + min(잔여, 20%), 1천만원 이하 15%, 1천만원 초과 30%)
+ * 전년도 이월 기부금 (소득세법 제61조 ②, 제59조의4 ④)
+ * - 이월 대상: 특례기부금, 일반기부금(종교단체 외·종교단체)만 해당
+ *   (정치자금·고향사랑·우리사주조합기부금은 이월공제가 허용되지 않음)
+ * - 이월 기간: 2013.1.1. 이후 지출분부터 10년 → 2025년 귀속은 2015~2024년 지출분
+ * - 이월분은 같은 종류의 당해연도 기부금보다 먼저, 기부연도가 빠른 것부터 공제
+ */
+export const DONATION_CARRYOVER_TYPES = ['특례기부금', '일반기부금(종교단체외)', '일반기부금(종교단체)'];
+export const DONATION_CARRYOVER_YEARS = 10;
+
+export function carryoverKindOf(type) {
+  const t = String(type || '').replace(/\s/g, '');
+  if (t.includes('특례') || t.includes('법정')) return 'special';
+  if (t.includes('종교단체외')) return 'generalNonReligious';
+  if (t.includes('종교')) return 'generalReligious';
+  return 'generalNonReligious';
+}
+
+export function normalizeDonationCarryoverItems(items = [], taxYear = 2025) {
+  const ty = Number(taxYear) || 2025;
+  return (Array.isArray(items) ? items : [])
+    .map((it) => ({
+      id: it.id,
+      year: Number(it.year) || 0,
+      kind: carryoverKindOf(it.type),
+      type: it.type,
+      amount: Math.max(0, Math.floor(Number(String(it.amount ?? '').replace(/[^0-9]/g, '')) || 0)),
+    }))
+    .filter((it) => it.amount > 0 && it.year >= ty - DONATION_CARRYOVER_YEARS && it.year <= ty - 1)
+    .sort((a, b) => a.year - b.year);
+}
+
+/**
+ * 기부금 세액공제 (소득세법 제59조의4 ④, 조세특례제한법 제76조·제58조·제88조의4 ⑬)
+ * 공제대상금액 한도는 아래 순서로 앞 종류의 공제대상금액을 빼고 계산한다.
+ *  ① 정치자금(본인): 근로소득금액 100%  — 10만원 이하 100/110, 10만원 초과 15%, 3천만원 초과분 25%
+ *  ② 고향사랑(본인): (근로소득금액 − ①) 100%, 연 2,000만원 — 10만원 이하 100/110, 초과 15%(특별재난지역 30%)
+ *  ③ 특례: (근로소득금액 − ① − ②) 100%
+ *  ④ 우리사주조합(본인): (근로소득금액 − ① − ② − ③) 30%
+ *  ⑤ 일반: 기준 = 근로소득금액 − ① − ② − ③ − ④
+ *       종교단체 기부금이 있으면 기준×10% + min(기준×20%, 종교단체 외 기부금), 없으면 기준×30%
+ *       (종교단체 외 기부금을 먼저 공제)
+ *  특례·우리사주·일반 공제율: 합계 1천만원 이하 15%, 초과분 30% (③→④→⑤ 순으로 구간 적용)
+ *  이월 기부금은 같은 종류의 당해연도 기부금보다 먼저 한도를 사용한다.
+ *  (이월분 공제율은 현행 15%/30%를 적용 — 2015년 이전 지출분의 지출연도 공제율 특례는 반영하지 않음)
  */
 export function calculateDonationCredit({
   donationItems = [],
   earnedIncome = 0,
   userName = '',
   fallbackAmount = 0,
+  carryoverItems = [],
+  taxYear = 2025,
 } = {}) {
-  if ((!donationItems || donationItems.length === 0) && fallbackAmount > 0) {
-    const singleCredit = Math.floor(fallbackAmount * 0.15);
-    return {
-      totalCredit: singleCredit,
-      politicalCredit: 0,
-      hometownCredit: 0,
-      specialCredit: 0,
-      employeeStockCredit: 0,
-      generalNonReligiousCredit: singleCredit,
-      generalReligiousCredit: 0,
-      details: {
-        politicalPaid: 0,
-        politicalCredit: 0,
-        hometownPaid: 0,
-        hometownCredit: 0,
-        hometownUnder10Credit: 0,
-        hometownDisasterOver10Credit: 0,
-        hometownGeneralOver10Credit: 0,
-        specialPaid: 0,
-        specialCredit: 0,
-        employeeStockPaid: 0,
-        employeeStockCredit: 0,
-        generalNonReligiousPaid: fallbackAmount,
-        generalNonReligiousCredit: singleCredit,
-        generalReligiousPaid: 0,
-        generalReligiousCredit: 0,
-        totalPaid: fallbackAmount,
-        totalCredit: singleCredit,
-      },
-    };
-  }
-
   let polPaid = 0;
   let homeGenPaid = 0;
   let homeDisPaid = 0;
@@ -266,7 +279,8 @@ export function calculateDonationCredit({
   let genNonRelPaid = 0;
   let genRelPaid = 0;
 
-  (donationItems || []).forEach((it) => {
+  const hasItems = Array.isArray(donationItems) && donationItems.length > 0;
+  (hasItems ? donationItems : []).forEach((it) => {
     const rawType = String(it.type || it.raw_type || it.category || '');
     const amt = Number(it.amount) || 0;
     if (amt <= 0) return;
@@ -282,11 +296,8 @@ export function calculateDonationCredit({
       if (isSelf) polPaid += amt;
     } else if (rawType.includes('고향사랑') || rawType.includes('고향')) {
       if (isSelf) {
-        if (rawType.includes('특별재난')) {
-          homeDisPaid += amt;
-        } else {
-          homeGenPaid += amt;
-        }
+        if (rawType.includes('특별재난')) homeDisPaid += amt;
+        else homeGenPaid += amt;
       }
     } else if (rawType.includes('우리사주')) {
       if (isSelf) empPaid += amt;
@@ -298,82 +309,126 @@ export function calculateDonationCredit({
       genNonRelPaid += amt;
     }
   });
+  // 종류별 내역이 없고 합계만 있으면 종교단체 외 일반기부금으로 본다
+  if (!hasItems && Number(fallbackAmount) > 0) genNonRelPaid = Math.floor(Number(fallbackAmount));
 
-  // 1) 정치자금기부금
-  const polUnder10 = Math.min(polPaid, 100000);
-  const polCreditUnder10 = Math.floor((polUnder10 * 100) / 110);
-  const polOver10 = Math.min(Math.max(0, polPaid - 100000), 29900000);
-  const polCreditOver10 = Math.floor(polOver10 * 0.15);
-  const polOver3000 = Math.max(0, polPaid - 30000000);
-  const polCreditOver3000 = Math.floor(polOver3000 * 0.25);
-  const politicalCredit = polCreditUnder10 + polCreditOver10 + polCreditOver3000;
+  // 전년도 이월 기부금 (기부연도 빠른 순)
+  const carryEntries = normalizeDonationCarryoverItems(carryoverItems, taxYear).map((e) => ({ ...e, used: 0 }));
+  const carryPaid = { special: 0, generalNonReligious: 0, generalReligious: 0 };
+  carryEntries.forEach((e) => { carryPaid[e.kind] += e.amount; });
+  // 한도 room 안에서 같은 종류 이월분을 오래된 연도부터 사용
+  const useCarry = (kind, room) => {
+    let left = Math.max(0, room);
+    let used = 0;
+    carryEntries.filter((e) => e.kind === kind).forEach((e) => {
+      const u = Math.min(e.amount, left);
+      e.used = u;
+      left -= u;
+      used += u;
+    });
+    return used;
+  };
 
-  // 2) 고향사랑기부금 (연간 500만원 한도)
-  const homeTotal = Math.min(homeGenPaid + homeDisPaid, 5000000);
-  const homeUnder10 = Math.min(homeTotal, 100000);
-  const hometownUnder10Credit = Math.floor((homeUnder10 * 100) / 110);
+  const ei = Math.max(0, Math.floor(Number(earnedIncome) || 0));
+
+  // ① 정치자금기부금 (한도: 근로소득금액)
+  const polElig = Math.min(polPaid, ei);
+  const politicalCredit =
+    Math.floor((Math.min(polElig, 100000) * 100) / 110) +
+    Math.floor(Math.min(Math.max(0, polElig - 100000), 29900000) * 0.15) +
+    Math.floor(Math.max(0, polElig - 30000000) * 0.25);
+
+  // ② 고향사랑기부금 (한도: 근로소득금액 − ①, 연 2,000만원)
+  const homeLimit = Math.max(0, Math.min(20000000, ei - polElig));
+  const homeTotal = Math.min(homeGenPaid + homeDisPaid, homeLimit);
+  const hometownUnder10Credit = Math.floor((Math.min(homeTotal, 100000) * 100) / 110);
   const homeOver10 = Math.max(0, homeTotal - 100000);
-  // 특별재난지역 기부금은 10만원 초과분에 대해 30% 공제율이 적용되므로 우선 배정
+  // 10만원 초과분은 특별재난지역 기부금(30%)부터 배정
   const homeDisOver10 = Math.min(homeDisPaid, homeOver10);
-  const homeGenOver10 = homeOver10 - homeDisOver10;
   const hometownDisasterOver10Credit = Math.floor(homeDisOver10 * 0.30);
-  const hometownGeneralOver10Credit = Math.floor(homeGenOver10 * 0.15);
+  const hometownGeneralOver10Credit = Math.floor((homeOver10 - homeDisOver10) * 0.15);
   const hometownCredit = hometownUnder10Credit + hometownDisasterOver10Credit + hometownGeneralOver10Credit;
 
-  // 3) 특례기부금 (법정기부금) - 한도: 근로소득금액 100%
-  const specLimit = Math.max(0, earnedIncome);
-  const specElig = Math.min(specPaid, specLimit);
-  const specialCredit =
-    specElig <= 10000000
-      ? Math.floor(specElig * 0.15)
-      : Math.floor(10000000 * 0.15 + (specElig - 10000000) * 0.30);
+  // ③ 특례기부금 (한도: 근로소득금액 − ① − ②), 이월분 먼저
+  let specRoom = Math.max(0, ei - polElig - homeTotal);
+  const specCarryElig = useCarry('special', specRoom);
+  specRoom -= specCarryElig;
+  const specElig = Math.min(specPaid, specRoom);
 
-  // 4) 우리사주조합기부금 - 한도: 근로소득금액 30%
-  const empLimit = Math.max(0, Math.floor(earnedIncome * 0.30));
-  const empElig = Math.min(empPaid, empLimit);
-  const employeeStockCredit =
-    empElig <= 10000000
-      ? Math.floor(empElig * 0.15)
-      : Math.floor(10000000 * 0.15 + (empElig - 10000000) * 0.30);
+  // ④ 우리사주조합기부금 (한도: (근로소득금액 − ① − ② − ③) × 30%)
+  const afterSpecial = Math.max(0, ei - polElig - homeTotal - specCarryElig - specElig);
+  const empElig = Math.min(empPaid, Math.floor(afterSpecial * 0.30));
 
-  // 5) 종교단체외 일반(지정)기부금 - 한도: (근로소득금액 - 특례기부금) * 30%
-  const genNonRelLimit = Math.max(0, Math.floor((earnedIncome - specElig) * 0.30));
-  const genNonRelElig = Math.min(genNonRelPaid, genNonRelLimit);
-  const generalNonReligiousCredit =
-    genNonRelElig <= 10000000
-      ? Math.floor(genNonRelElig * 0.15)
-      : Math.floor(10000000 * 0.15 + (genNonRelElig - 10000000) * 0.30);
+  // ⑤ 일반기부금 (종교단체 외 → 종교단체, 각각 이월분 먼저)
+  const genBase = Math.max(0, afterSpecial - empElig);
+  const hasReligious = genRelPaid + carryPaid.generalReligious > 0;
+  const nonReligiousTotal = genNonRelPaid + carryPaid.generalNonReligious;
+  const genLimit = hasReligious
+    ? Math.floor(genBase * 0.10) + Math.min(Math.floor(genBase * 0.20), nonReligiousTotal)
+    : Math.floor(genBase * 0.30);
+  let genRoom = genLimit;
+  const genNonRelCarryElig = useCarry('generalNonReligious', genRoom);
+  genRoom -= genNonRelCarryElig;
+  const genNonRelElig = Math.min(genNonRelPaid, genRoom);
+  genRoom -= genNonRelElig;
+  const genRelCarryElig = useCarry('generalReligious', genRoom);
+  genRoom -= genRelCarryElig;
+  const genRelElig = Math.min(genRelPaid, genRoom);
 
-  // 6) 종교단체 일반(지정)기부금 - 한도: (근로소득금액 - 특례기부금) * 10% + min(일반잔여, 근로소득금액 * 20%)
-  const genRelLimit = Math.max(
-    0,
-    Math.floor((earnedIncome - specElig) * 0.10) +
-      Math.min(Math.max(0, genNonRelLimit - genNonRelElig), Math.floor(earnedIncome * 0.20))
-  );
-  const genRelElig = Math.min(genRelPaid, genRelLimit);
-  const generalReligiousCredit =
-    genRelElig <= 10000000
-      ? Math.floor(genRelElig * 0.15)
-      : Math.floor(10000000 * 0.15 + (genRelElig - 10000000) * 0.30);
+  // 특례·우리사주·일반 공제율: 합계 1천만원 이하 15%, 초과분 30%
+  let tierUsed = 0;
+  const tierCredit = (amt) => {
+    const low = Math.min(amt, Math.max(0, 10000000 - tierUsed));
+    tierUsed += amt;
+    return Math.floor(low * 0.15 + (amt - low) * 0.30);
+  };
+  const specialCarryCredit = tierCredit(specCarryElig);
+  const specialCurrentCredit = tierCredit(specElig);
+  const employeeStockCredit = tierCredit(empElig);
+  const generalNonReligiousCarryCredit = tierCredit(genNonRelCarryElig);
+  const generalNonReligiousCurrentCredit = tierCredit(genNonRelElig);
+  const generalReligiousCarryCredit = tierCredit(genRelCarryElig);
+  const generalReligiousCurrentCredit = tierCredit(genRelElig);
 
-  const totalCredit =
-    politicalCredit +
-    hometownCredit +
-    specialCredit +
-    employeeStockCredit +
-    generalNonReligiousCredit +
-    generalReligiousCredit;
-
+  const specialCredit = specialCarryCredit + specialCurrentCredit;
+  const generalNonReligiousCredit = generalNonReligiousCarryCredit + generalNonReligiousCurrentCredit;
+  const generalReligiousCredit = generalReligiousCarryCredit + generalReligiousCurrentCredit;
+  const totalCredit = politicalCredit + hometownCredit + specialCredit + employeeStockCredit + generalNonReligiousCredit + generalReligiousCredit;
   const totalPaid = polPaid + homeGenPaid + homeDisPaid + empPaid + specPaid + genNonRelPaid + genRelPaid;
+
+  // 한도초과로 공제받지 못한 당해연도 특례·일반기부금 (다음 과세기간 이월 대상)
+  const limitExcess = {
+    special: Math.max(0, specPaid - specElig),
+    generalNonReligious: Math.max(0, genNonRelPaid - genNonRelElig),
+    generalReligious: Math.max(0, genRelPaid - genRelElig),
+  };
+
+  // 산출세액 배분용 덩어리 (이월분 → 당해분, 공제대상금액과 세액)
+  const chunks = {
+    specialCarry: { amount: specCarryElig, credit: specialCarryCredit },
+    specialCurrent: { amount: specElig, credit: specialCurrentCredit },
+    generalNonReligiousCarry: { amount: genNonRelCarryElig, credit: generalNonReligiousCarryCredit },
+    generalNonReligiousCurrent: { amount: genNonRelElig, credit: generalNonReligiousCurrentCredit },
+    generalReligiousCarry: { amount: genRelCarryElig, credit: generalReligiousCarryCredit },
+    generalReligiousCurrent: { amount: genRelElig, credit: generalReligiousCurrentCredit },
+  };
 
   return {
     totalCredit,
     politicalCredit,
     hometownCredit,
     specialCredit,
+    specialCarryCredit,
+    specialCurrentCredit,
     employeeStockCredit,
     generalNonReligiousCredit,
+    generalNonReligiousCarryCredit,
+    generalNonReligiousCurrentCredit,
     generalReligiousCredit,
+    generalReligiousCarryCredit,
+    generalReligiousCurrentCredit,
+    chunks,
+    carryover: { entries: carryEntries, paid: carryPaid, limitExcess },
     details: {
       totalPaid,
       totalCredit,
@@ -385,12 +440,15 @@ export function calculateDonationCredit({
       hometownDisasterOver10Credit,
       hometownGeneralOver10Credit,
       specialPaid: specPaid,
+      specialCarryPaid: carryPaid.special,
       specialCredit,
       employeeStockPaid: empPaid,
       employeeStockCredit,
       generalNonReligiousPaid: genNonRelPaid,
+      generalNonReligiousCarryPaid: carryPaid.generalNonReligious,
       generalNonReligiousCredit,
       generalReligiousPaid: genRelPaid,
+      generalReligiousCarryPaid: carryPaid.generalReligious,
       generalReligiousCredit,
     },
   };
@@ -467,7 +525,7 @@ export function calculateEarnedIncomeTaxCredit(calculatedTax, grossSalary, reduc
 
 /**
  * 4. 신용카드 등 사용금액 소득공제 계산 (조세특례제한법 제126조의2)
- * 국세청 간소화 및 세무신고 표준 서식 산출식 100% 일치:
+ * 국세청 연말정산 신고안내의 산출식 기준:
  * 
  * - 최저사용금액 = 총급여 * 0.25
  * - 공제율:
@@ -749,7 +807,7 @@ export function calculateSettlementTax({
   let additionalDeduction = 0;
   let childrenCount = 0;
 
-  // 생년월일/주민번호 기준 출생연도 추출 헬퍼 (마스킹 YYMMDD-******* 및 YYYY.MM.DD 완벽 대응)
+  // 생년월일/주민번호 기준 출생연도 추출 헬퍼 (마스킹 YYMMDD-******* 및 YYYY.MM.DD 형식 지원)
   const getBirthYear = (m) => {
     // 1) birth / birthDate 문자열에서 4자리 연도 직접 추출 (예: '1955.01.01', '1955-01-01')
     const birthStr = String(m?.birth || m?.birthDate || m?.birth_date || '').trim();
@@ -806,7 +864,7 @@ export function calculateSettlementTax({
         (member.disabledDeduction && member.disabledDeduction !== '해당없음')
       );
 
-      // 소득 요건 초과 여부 확인 (홍부인, 고부친 등)
+      // 소득 요건 초과 여부 확인 (연간 소득금액 100만원 초과, 근로소득만 있으면 총급여 500만원 초과)
       const isIncomeOver = Boolean(
         member.incomeOver === '초과함' ||
         member.incomeExcess
@@ -871,10 +929,11 @@ export function calculateSettlementTax({
       );
       if (isSingleParent) additionalDeduction += 1000000;
 
-      // 4) 부녀자: 종합소득 3천만원 이하 여성 근로자 (본인만, 50만 원) - 한부모 중복 시 한부모 우선
+      // 4) 부녀자: 종합소득금액(근로소득금액) 3천만원 이하 여성 근로자 (본인만, 50만 원) - 한부모 중복 시 한부모 우선
       const isWoman = Boolean(
         isSelfPerson &&
         !isSingleParent &&
+        earnedIncome <= 30000000 &&
         (member.isWoman || (member.womanDeduction && member.womanDeduction !== '해당없음'))
       );
       if (isWoman) additionalDeduction += 500000;
@@ -915,7 +974,7 @@ export function calculateSettlementTax({
   const housingSavingsInput = Number(deductionData?.housingSavings) || 0;
   const housingSavingsDeduction = totalSalary > 70000000 ? 0 : Math.min(1200000, Math.floor(housingSavingsInput * 0.4));
 
-  // 신용카드 등 사용금액 공제 (조특법 제126조의2 법정 산출 공식 및 국세청 서식 100% 일치)
+  // 신용카드 등 사용금액 공제 (조특법 제126조의2)
   const creditCardAmt = Number(deductionData?.creditCard ?? (hometaxData?.credit ?? hometaxData?.credit_card_general ?? 0)) || 0;
   const debitCardAmt = Number(deductionData?.debitCard ?? (hometaxData?.debit ?? hometaxData?.debit_card_cash ?? 0)) || 0;
   const cashReceiptAmt = Number(deductionData?.cashReceipt ?? (hometaxData?.cash ?? hometaxData?.cash_receipt ?? 0)) || 0;
@@ -1074,44 +1133,65 @@ export function calculateSettlementTax({
     }
   }
 
-  const incomeDeductionsTotal =
-    nationalPension +
-    healthInsurance +
-    employmentInsurance +
-    housingLoanInput +
-    housingSavingsDeduction +
-    personalPensionDeduction +
-    cardDeduction +
-    smallBizDeduction +
-    longInvestDeduction +
-    ventureFundDeduction;
-
-  // 6. 과세표준
-  const taxBase = Math.max(0, earnedIncome - humanDeductionsTotal - incomeDeductionsTotal);
-
-  // 7. 산출세액
-  const calculatedTax = calculateIncomeTax(taxBase);
+  // 6. 과세표준 = 근로소득금액 − 인적공제 − 소득공제 + 소득공제 종합한도 초과액
+  // 소득공제 종합한도 (조특법 제132조의2: 연 2,500만원)
+  //  대상: 주택자금(특별소득공제), 주택마련저축, 신용카드 등, 소기업·소상공인 공제부금,
+  //        장기집합투자증권저축, 벤처투자조합 출자 등 (국민연금·건강/고용보험료·개인연금저축은 대상 아님)
+  const INCOME_DEDUCTION_COMPREHENSIVE_LIMIT = 25000000;
+  // 특별소득공제 (소득세법 제52조): 건강·고용보험료, 주택자금 — 표준세액공제를 택하면 적용하지 않는다
+  const specialIncomeDeductions = healthInsurance + employmentInsurance + housingLoanInput;
+  const buildTaxBase = (withSpecialIncome) => {
+    const limitTarget =
+      (withSpecialIncome ? housingLoanInput : 0) +
+      housingSavingsDeduction +
+      cardDeduction +
+      smallBizDeduction +
+      longInvestDeduction +
+      ventureFundDeduction;
+    const limitExcess = Math.max(0, limitTarget - INCOME_DEDUCTION_COMPREHENSIVE_LIMIT);
+    const total =
+      nationalPension +
+      (withSpecialIncome ? specialIncomeDeductions : 0) +
+      housingSavingsDeduction +
+      personalPensionDeduction +
+      cardDeduction +
+      smallBizDeduction +
+      longInvestDeduction +
+      ventureFundDeduction -
+      limitExcess;
+    const base = Math.max(0, earnedIncome - humanDeductionsTotal - total);
+    // 7. 산출세액
+    return { incomeDeductionsTotal: total, limitExcess, taxBase: base, calculatedTax: calculateIncomeTax(base) };
+  };
+  // 특별세액공제를 받는 경우(특별소득공제 적용)와 표준세액공제를 받는 경우(특별소득공제 미적용)를 모두 계산
+  const specialBase = buildTaxBase(true);
+  const standardBase = buildTaxBase(false);
 
   // 8. 세액감면 및 세액공제
-  // 중소기업 취업자 소득세 감면액 (조특법 제30조 90%, 한도 200만원)
-  let smeReduction = 0;
+  // 중소기업 취업자 소득세 감면 (조특법 제30조: 청년 90%, 연 200만원 한도)
+  //  - 원천징수영수증 등에 감면세액이 있으면 그 금액, 감면 대상 표시만 있으면 산출세액 × 90%
+  let fixedSmeReduction = null;
+  let smeEligible = false;
   if (withholdingData?.smeReduction || withholdingData?.taxReductionSme) {
-    smeReduction = Number(withholdingData.smeReduction || withholdingData.taxReductionSme) || 0;
+    fixedSmeReduction = Number(withholdingData.smeReduction || withholdingData.taxReductionSme) || 0;
   } else if (deductionData?.smeReduction || deductionData?.taxReductionSme) {
-    smeReduction = Number(deductionData.smeReduction || deductionData.taxReductionSme) || 0;
+    fixedSmeReduction = Number(deductionData.smeReduction || deductionData.taxReductionSme) || 0;
   } else if (withholdingData?.isSmeYouth || deductionData?.isSmeYouth) {
-    smeReduction = Math.min(2000000, Math.floor(calculatedTax * 0.9));
+    smeEligible = true;
   } else if (Array.isArray(deductionData?.otherDeductItems)) {
     const smeItem = deductionData.otherDeductItems.find(
       (item) => item.type?.includes('중소기업') || item.category?.includes('중소기업') || item.type?.includes('청년')
     );
-    if (smeItem && Number(smeItem.amount) > 0) {
-      smeReduction = Math.min(2000000, Math.floor(calculatedTax * 0.9));
-    }
+    if (smeItem && Number(smeItem.amount) > 0) smeEligible = true;
   }
+  const smeReductionFor = (ct) =>
+    fixedSmeReduction !== null ? fixedSmeReduction : (smeEligible ? Math.min(2000000, Math.floor(ct * 0.9)) : 0);
 
-  // 1) 근로소득세액공제
-  const earnedIncomeCredit = calculateEarnedIncomeTaxCredit(calculatedTax, totalSalary, smeReduction);
+  // 1) 근로소득세액공제 (소득세법 제59조) — 산출세액에 따라 달라지므로 두 경우 각각 계산
+  const smeReductionSpecial = smeReductionFor(specialBase.calculatedTax);
+  const earnedIncomeCreditSpecial = calculateEarnedIncomeTaxCredit(specialBase.calculatedTax, totalSalary, smeReductionSpecial);
+  const smeReductionStandard = smeReductionFor(standardBase.calculatedTax);
+  const earnedIncomeCreditStandard = calculateEarnedIncomeTaxCredit(standardBase.calculatedTax, totalSalary, smeReductionStandard);
 
   // 2) 보장성보험료 세액공제 (소득세법 제59조의4 제1항)
   // - 일반보장성보험: 공제대상금액 연 100만원 한도 12% 공제율 (최대 12만원)
@@ -1192,7 +1272,7 @@ export function calculateSettlementTax({
   // 보장성보험료 세액공제 합계
   const insuranceCredit = generalInsuranceCredit + disabledInsuranceCredit;
 
-  // 3) 의료비 세액공제 (소득세법 제59조의4 제2항 완벽 준수)
+  // 3) 의료비 세액공제 (소득세법 제59조의4 ②)
   // - 총급여 3% 최저사용금액(Threshold)을 '그 밖의 공제대상자(일반의료비)'에서 우선 차감
   // - 남은 문턱금액을 본인/65세이상/6세이하/장애인/특례자 -> 미숙아 -> 난임시술비 순으로 순차 차감
   // - 공제율: 난임시술비 30%(한도 없음), 미숙아·선천성 20%(한도 없음), 본인/65세/6세/장애인 15%(한도 없음), 그 밖의 공제대상자 15%(연 700만 원 한도)
@@ -1210,7 +1290,7 @@ export function calculateSettlementTax({
     });
   }
 
-  // 1순위: deductionData에 이미 인별 한도 및 실손보험금이 완벽 정산된 카테고리별 의료비가 있는 경우 최우선 채택
+  // 1순위: 공제자료 화면에서 인별 한도·실손보험금을 반영해 구분한 의료비가 있으면 그 값을 사용
   const hasPrecalculatedMedical = (
     deductionData?.medicalSelf !== undefined ||
     deductionData?.medicalSpecial !== undefined ||
@@ -1272,9 +1352,8 @@ export function calculateSettlementTax({
       });
 
       const cappedGlasses = Math.min(500000, mGlasses);
-      const totalEligible = mGeneral + cappedGlasses + mPostpartum + mInfer + mPrem;
-      let netEligible = Math.max(0, totalEligible - mInsTotal);
-      if (netEligible <= 0) return;
+      const regularEligible = mGeneral + cappedGlasses + mPostpartum;
+      if (regularEligible + mInfer + mPrem - mInsTotal <= 0) return;
 
       const fMember = familyMapByName[pName] ||
         (Array.isArray(familyList) ? familyList.find((m) => {
@@ -1304,6 +1383,8 @@ export function calculateSettlementTax({
         mRel.includes('산정특례') || pName.includes('산정특례') || mRel.includes('중증질환')
       );
 
+      // 실손의료보험금은 난임시술비 → 미숙아·선천성이상아 → 그 밖의 의료비 순으로 차감하고,
+      // 난임·미숙아 의료비는 별도 공제율(30%·20%) 항목으로만 집계한다 (일반 항목에 중복 집계하지 않음)
       if (mInfer > 0) {
         medicalInfertility += Math.max(0, mInfer - mInsTotal);
         mInsTotal = Math.max(0, mInsTotal - mInfer);
@@ -1312,6 +1393,8 @@ export function calculateSettlementTax({
         medicalPremature += Math.max(0, mPrem - mInsTotal);
         mInsTotal = Math.max(0, mInsTotal - mPrem);
       }
+      const netEligible = Math.max(0, regularEligible - mInsTotal);
+      if (netEligible <= 0) return;
 
       if (isSelf) {
         medicalSelf += netEligible;
@@ -1452,14 +1535,11 @@ export function calculateSettlementTax({
 
   const medicalCredit = creditGeneral + creditSpecial + creditPremature + creditInfertility;
 
-  // 4) 교육비 세액공제 (15%)
-  // - 본인: 대학원(750만) + 학점은행(220만) + 직업훈련(194.145만) + 학자금대출(202.0255만) = 13,661,705원 (전액)
-  // - 고철수: 고등학교(5.53만) + 현장학습(15.348만) + 수능/입학전형(10.2만) = 310,780원
-  // - 고둘리: 유치원/학원(364.736만) 중 취학전 한도 300만원
-  // - 고우너: 교복(98.7만) 중 중고등 교복 한도 50만원
-  // - 고영수: 전문대(682.16만) + 수능/대학입학전형료(13.2만) = 6,953,600원 (대학생 900만원 한도 내 전액)
-  // => 총 공제대상 교육비 합계: 24,426,085원
-  // => 교육비 세액공제: 24,426,085 * 15% = 3,663,912원
+  // 4) 교육비 세액공제 (소득세법 제59조의4 ③, 15%)
+  // - 공제대상 교육비(deductionData.education)는 교육비 화면에서 1인별 한도를 적용한 금액
+  //   본인: 한도 없음(대학원·직업훈련·학자금대출 상환 포함), 취학전·초·중·고: 1인당 300만원,
+  //   대학생: 1인당 900만원, 장애인 특수교육비: 한도 없음(나이·소득 제한 없음)
+  //   교복 등 1인당 50만원, 현장체험학습비 1인당 30만원, 대학 입학전형료·수능 응시료 포함
   let eduInput = 0;
   if (deductionData?.education !== undefined && deductionData?.education !== null) {
     eduInput = Number(deductionData.education) || 0;
@@ -1479,6 +1559,8 @@ export function calculateSettlementTax({
     earnedIncome,
     userName,
     fallbackAmount: donationFallbackAmount,
+    carryoverItems: deductionData?.donationCarryoverItems || [],
+    taxYear,
   });
 
   const donationCredit = donationCalcResult.totalCredit;
@@ -1527,18 +1609,15 @@ export function calculateSettlementTax({
   else if (childrenCount === 2) childCredit = 550000;
   else if (childrenCount >= 3) childCredit = 550000 + (childrenCount - 2) * 400000;
 
-  // 당해연도(2025년) 출생/입양 자녀 추가 세액공제
+  // 출산·입양 세액공제: 해당 과세연도에 출생·입양 신고한 기본공제대상 자녀 (첫째 30만, 둘째 50만, 셋째 이상 70만)
+  //  - 순서는 birthOrder(입력값)가 있으면 그 값, 없으면 가족 중 자녀의 출생연도 순서로 판정
   if (Array.isArray(familyList)) {
     familyList.forEach((m) => {
-      const rel = m.relation || '';
-      const isChild = rel.includes('자녀') || rel.includes('입양');
-      const bYear = getBirthYear(m);
-      if (isChild && (bYear === 2025 || m.birthOrder || m.isNewborn)) {
-        const order = Number(m.birthOrder) || 1;
-        if (order === 1) childCredit += 300000;
-        else if (order === 2) childCredit += 500000;
-        else if (order >= 3) childCredit += 700000;
-      }
+      if (!isNewbornOrAdopted(m, taxYear) || shouldExcludeBasicDeduction(m) || m.basicDeduction === '해당없음') return;
+      const order = birthOrderOf(m, familyList);
+      if (order === 1) childCredit += 300000;
+      else if (order === 2) childCredit += 500000;
+      else if (order >= 3) childCredit += 700000;
     });
   }
 
@@ -1562,66 +1641,103 @@ export function calculateSettlementTax({
     if (hasMarriage) marriageCredit = 500000;
   }
 
-  // ===== 세액감면·공제 적용순서 (소득세법 제60조, 원천세과-830, 2023.09.13.) =====
-  // ① 세액감면(중소기업 취업자 소득세 감면)
-  // ② 이월공제가 인정되지 않는 세액공제
-  //    근로소득 → 혼인 → 자녀 → 보장성보험료 → 의료비 → 교육비 → 정치자금기부금 → 고향사랑기부금
-  //    → 우리사주조합기부금 → 표준세액공제 → 월세액
-  // ③ 이월공제가 인정되는 세액공제 (소득세법 제61조: 특례·일반기부금, 10년 이월)
-  //    특례기부금 → 일반기부금(종교단체 외) → 일반기부금(종교단체)
-  // ④ 연금계좌세액공제: 감면·공제 합계가 산출세액을 초과하면 그 초과액을 한도로 공제받지 않은 것으로 봄
-  // 각 공제는 앞선 감면·공제를 차감하고 남은 산출세액 범위 안에서만 적용된다.
-  let remainingTax = Math.max(0, calculatedTax);
-  const applyCredit = (amount) => {
-    const applied = Math.min(Math.max(0, Math.floor(Number(amount) || 0)), remainingTax);
-    remainingTax -= applied;
-    return applied;
+  // ===== 특별세액공제 vs 표준세액공제 선택, 세액감면·공제 적용순서 =====
+  // [표준세액공제] 소득세법 제59조의4 ⑨: 특별소득공제(건강·고용보험료, 주택자금)·특별세액공제(보장성보험료·의료비·
+  //   교육비·특례/일반기부금)·월세액 세액공제를 신청하지 않은 근로자는 연 13만원을 공제한다.
+  //   두 경우를 모두 계산해(표준세액공제 쪽은 특별소득공제를 빼고 과세표준·산출세액부터 다시 계산)
+  //   결정세액이 더 적은 쪽을 택한다(같으면 특별세액공제). 근로소득·혼인·자녀·연금계좌 세액공제와
+  //   조특법상 정치자금·고향사랑·우리사주조합 기부금 세액공제는 두 경우 모두 적용된다.
+  // [적용순서] 소득세법 제60조, 원천세과-830(2023.09.13.)
+  //   ① 세액감면(중소기업 취업자)
+  //   ② 이월공제가 인정되지 않는 세액공제: 근로소득 → 혼인 → 자녀 → 보장성보험료 → 의료비 → 교육비
+  //      → 정치자금 → 고향사랑 → 우리사주조합 → 표준세액공제 → 월세액
+  //   ③ 이월공제가 인정되는 세액공제(소득세법 제61조, 10년): 특례(이월분 → 당해분)
+  //      → 일반·종교단체 외(이월분 → 당해분) → 일반·종교단체(이월분 → 당해분)
+  //   ④ 연금계좌: 감면·공제 합계가 산출세액을 초과하면 그 초과액을 한도로 공제받지 않은 것으로 본다.
+  //   각 공제는 앞선 감면·공제를 빼고 남은 산출세액 범위 안에서만 적용된다.
+  const STANDARD_TAX_CREDIT = 130000;
+  const dch = donationCalcResult.chunks;
+  const allocateCredits = ({ ct, sme, earned, useStandard }) => {
+    let remaining = Math.max(0, ct);
+    const apply = (amount) => {
+      const applied = Math.min(Math.max(0, Math.floor(Number(amount) || 0)), remaining);
+      remaining -= applied;
+      return applied;
+    };
+    const ifSpecial = (amount) => (useStandard ? 0 : amount);
+    const a = {};
+    // ① 세액감면
+    a.sme = apply(sme);
+    // ② 이월공제 불가
+    a.earned = apply(earned);
+    a.marriage = apply(marriageCredit);
+    a.child = apply(childCredit);
+    a.insurance = apply(ifSpecial(insuranceCredit));
+    a.medical = apply(ifSpecial(medicalCredit));
+    a.education = apply(ifSpecial(educationCredit));
+    a.political = apply(politicalDonationCredit);
+    a.hometown = apply(hometownDonationCredit);
+    a.employeeStock = apply(employeeStockDonationCredit);
+    a.standard = apply(useStandard ? STANDARD_TAX_CREDIT : 0);
+    a.rent = apply(ifSpecial(rentCredit));
+    // ③ 이월공제 가능 (같은 종류는 이월분 먼저)
+    a.specialCarry = apply(ifSpecial(dch.specialCarry.credit));
+    a.specialCurrent = apply(ifSpecial(dch.specialCurrent.credit));
+    a.generalNonReligiousCarry = apply(ifSpecial(dch.generalNonReligiousCarry.credit));
+    a.generalNonReligiousCurrent = apply(ifSpecial(dch.generalNonReligiousCurrent.credit));
+    a.generalReligiousCarry = apply(ifSpecial(dch.generalReligiousCarry.credit));
+    a.generalReligiousCurrent = apply(ifSpecial(dch.generalReligiousCurrent.credit));
+    // ④ 연금계좌
+    a.pension = apply(pensionCreditRaw);
+    const total = Object.values(a).reduce((sum, v) => sum + v, 0);
+    return { applied: a, total, finalTax: Math.max(0, ct - total) };
   };
 
-  // 표준세액공제 (13만원) 판정 — 적용순서와 무관하게 공제 전 금액으로 판정:
-  // 특별소득공제(건강·고용·주택자금), 특별세액공제(보장성보험·의료비·교육비·특례/일반기부금), 월세액공제를
-  // 신청하지 아니하거나 그 합계가 13만원에 미달하는 경우 근로자에게 유리하게 표준세액공제 적용
-  const specialCreditsTotal =
-    insuranceCredit +
-    medicalCredit +
-    educationCredit +
-    specialDonationCredit +
-    generalDonationCredit +
-    rentCredit;
-  const specialIncomeDeductions = healthInsurance + employmentInsurance + housingLoanInput;
-  let standardCreditAmount = 0;
-  if (calculatedTax > 0 && specialIncomeDeductions === 0) {
-    if (specialCreditsTotal === 0) standardCreditAmount = 130000;
-    else if (specialCreditsTotal < 130000) standardCreditAmount = 130000 - specialCreditsTotal;
-  }
+  const specialResult = allocateCredits({
+    ct: specialBase.calculatedTax, sme: smeReductionSpecial, earned: earnedIncomeCreditSpecial, useStandard: false,
+  });
+  const standardResult = allocateCredits({
+    ct: standardBase.calculatedTax, sme: smeReductionStandard, earned: earnedIncomeCreditStandard, useStandard: true,
+  });
+  const useStandardCredit = totalSalary > 0 && standardResult.finalTax < specialResult.finalTax;
+  const chosen = useStandardCredit ? standardResult : specialResult;
+  const chosenBase = useStandardCredit ? standardBase : specialBase;
 
-  // ① 세액감면
-  const appliedSmeReduction = applyCredit(smeReduction);
-  // ② 이월공제 불가 세액공제
-  const appliedEarnedIncomeCredit = applyCredit(earnedIncomeCredit);
-  const appliedMarriageCredit = applyCredit(marriageCredit);
-  const appliedChildCredit = applyCredit(childCredit);
-  const appliedInsuranceCredit = applyCredit(insuranceCredit);
-  const appliedMedicalCredit = applyCredit(medicalCredit);
-  const appliedEducationCredit = applyCredit(educationCredit);
-  const appliedPoliticalDonationCredit = applyCredit(politicalDonationCredit);
-  const appliedHometownDonationCredit = applyCredit(hometownDonationCredit);
-  const appliedEmployeeStockDonationCredit = applyCredit(employeeStockDonationCredit);
-  const standardCredit = applyCredit(standardCreditAmount);
-  const appliedRentCredit = applyCredit(rentCredit);
-  // ③ 이월공제 가능 세액공제 (특례 → 종교단체 외 일반 → 종교단체 일반)
-  const appliedSpecialDonationCredit = applyCredit(specialDonationCredit);
-  const appliedGeneralNonReligiousDonationCredit = applyCredit(generalNonReligiousDonationCredit);
-  const appliedGeneralReligiousDonationCredit = applyCredit(generalReligiousDonationCredit);
+  // 확정된 과세표준·산출세액·감면·근로소득세액공제
+  const incomeDeductionsTotal = chosenBase.incomeDeductionsTotal;
+  const incomeDeductionLimitExcess = chosenBase.limitExcess;
+  const taxBase = chosenBase.taxBase;
+  const calculatedTax = chosenBase.calculatedTax;
+  const smeReduction = useStandardCredit ? smeReductionStandard : smeReductionSpecial;
+  const earnedIncomeCredit = useStandardCredit ? earnedIncomeCreditStandard : earnedIncomeCreditSpecial;
+  const standardCreditRaw = useStandardCredit ? STANDARD_TAX_CREDIT : 0;
+
+  const ap = chosen.applied;
+  const appliedSmeReduction = ap.sme;
+  const appliedEarnedIncomeCredit = ap.earned;
+  const appliedMarriageCredit = ap.marriage;
+  const appliedChildCredit = ap.child;
+  const appliedInsuranceCredit = ap.insurance;
+  const appliedMedicalCredit = ap.medical;
+  const appliedEducationCredit = ap.education;
+  const appliedPoliticalDonationCredit = ap.political;
+  const appliedHometownDonationCredit = ap.hometown;
+  const appliedEmployeeStockDonationCredit = ap.employeeStock;
+  const standardCredit = ap.standard;
+  const appliedRentCredit = ap.rent;
+  const appliedSpecialCarryDonationCredit = ap.specialCarry;
+  const appliedSpecialCurrentDonationCredit = ap.specialCurrent;
+  const appliedGeneralNonReligiousCarryDonationCredit = ap.generalNonReligiousCarry;
+  const appliedGeneralNonReligiousCurrentDonationCredit = ap.generalNonReligiousCurrent;
+  const appliedGeneralReligiousCarryDonationCredit = ap.generalReligiousCarry;
+  const appliedGeneralReligiousCurrentDonationCredit = ap.generalReligiousCurrent;
+  const appliedSpecialDonationCredit = appliedSpecialCarryDonationCredit + appliedSpecialCurrentDonationCredit;
+  const appliedGeneralNonReligiousDonationCredit =
+    appliedGeneralNonReligiousCarryDonationCredit + appliedGeneralNonReligiousCurrentDonationCredit;
+  const appliedGeneralReligiousDonationCredit =
+    appliedGeneralReligiousCarryDonationCredit + appliedGeneralReligiousCurrentDonationCredit;
   const appliedGeneralDonationCredit = appliedGeneralNonReligiousDonationCredit + appliedGeneralReligiousDonationCredit;
-  // ④ 연금계좌세액공제 (초과분은 공제받지 않은 것으로 봄)
-  const appliedPensionCredit = applyCredit(pensionCreditRaw);
-
-  // 산출세액 부족으로 공제받지 못한 특례·일반기부금 세액 → 다음 과세기간 이월공제 대상(10년)
-  const donationCarryoverCredit =
-    (specialDonationCredit - appliedSpecialDonationCredit) +
-    (generalDonationCredit - appliedGeneralDonationCredit);
-
+  const appliedPensionCredit = ap.pension;
   const appliedDonationCredit =
     appliedPoliticalDonationCredit +
     appliedHometownDonationCredit +
@@ -1629,21 +1745,54 @@ export function calculateSettlementTax({
     appliedEmployeeStockDonationCredit +
     appliedGeneralDonationCredit;
 
-  const taxCreditsTotal =
-    appliedSmeReduction +
-    appliedEarnedIncomeCredit +
-    appliedMarriageCredit +
-    appliedChildCredit +
-    appliedInsuranceCredit +
-    appliedMedicalCredit +
-    appliedEducationCredit +
-    appliedDonationCredit +
-    appliedRentCredit +
-    appliedPensionCredit +
-    standardCredit;
+  // 산출세액 부족으로 공제받지 못한 특례·일반기부금 세액 (특별세액공제를 택한 경우)
+  const donationCarryoverCredit = useStandardCredit
+    ? 0
+    : (specialDonationCredit - appliedSpecialDonationCredit) + (generalDonationCredit - appliedGeneralDonationCredit);
 
-  // 9. 결정세액 (소득세, 지방소득세)
-  const finalIncomeTax = Math.max(0, calculatedTax - taxCreditsTotal);
+  // 다음 과세기간으로 이월되는 특례·일반기부금 (공제대상금액 기준, 10년)
+  //  = 당해연도 한도초과액 + 산출세액 부족으로 공제받지 못한 금액(세액을 공제대상금액으로 환산)
+  //  - 이월분은 기부연도가 빠른 것부터 공제된 것으로 보고, 10년이 지난 이월분은 소멸
+  //  - 표준세액공제를 택하면 당해연도 기부금은 공제·이월하지 않고, 전년도 이월분은 그대로 이월
+  const unappliedAmount = (chunk, applied) =>
+    chunk.credit > 0 ? Math.round((chunk.amount * (chunk.credit - applied)) / chunk.credit) : 0;
+  const carryKinds = [
+    ['special', dch.specialCarry, appliedSpecialCarryDonationCredit, dch.specialCurrent, appliedSpecialCurrentDonationCredit],
+    ['generalNonReligious', dch.generalNonReligiousCarry, appliedGeneralNonReligiousCarryDonationCredit,
+      dch.generalNonReligiousCurrent, appliedGeneralNonReligiousCurrentDonationCredit],
+    ['generalReligious', dch.generalReligiousCarry, appliedGeneralReligiousCarryDonationCredit,
+      dch.generalReligiousCurrent, appliedGeneralReligiousCurrentDonationCredit],
+  ];
+  const taxYearNum = Number(taxYear) || 2025;
+  const carryEntriesOut = [];
+  const donationCarryoverNext = { special: 0, generalNonReligious: 0, generalReligious: 0, total: 0, expired: 0, entries: carryEntriesOut };
+  carryKinds.forEach(([kind, carryChunk, carryApplied, curChunk, curApplied]) => {
+    // 실제로 세액공제된 이월분 금액을 오래된 연도부터 배정
+    let appliedLeft = useStandardCredit ? 0 : Math.max(0, carryChunk.amount - unappliedAmount(carryChunk, carryApplied));
+    donationCalcResult.carryover.entries.filter((e) => e.kind === kind).forEach((e) => {
+      const appliedHere = Math.min(e.used, appliedLeft);
+      appliedLeft -= appliedHere;
+      const remainingAmt = e.amount - appliedHere;
+      const expires = e.year <= taxYearNum - DONATION_CARRYOVER_YEARS;
+      carryEntriesOut.push({ year: e.year, kind, amount: e.amount, applied: appliedHere, remaining: remainingAmt, expires });
+      if (expires) donationCarryoverNext.expired += remainingAmt;
+      else donationCarryoverNext[kind] += remainingAmt;
+    });
+    if (!useStandardCredit) {
+      const currentNext = donationCalcResult.carryover.limitExcess[kind] + unappliedAmount(curChunk, curApplied);
+      if (currentNext > 0) {
+        carryEntriesOut.push({ year: taxYearNum, kind, amount: currentNext, applied: 0, remaining: currentNext, expires: false });
+        donationCarryoverNext[kind] += currentNext;
+      }
+    }
+  });
+  donationCarryoverNext.total =
+    donationCarryoverNext.special + donationCarryoverNext.generalNonReligious + donationCarryoverNext.generalReligious;
+
+  const taxCreditsTotal = chosen.total;
+
+  // 9. 결정세액 (소득세, 지방소득세 = 소득세의 10%)
+  const finalIncomeTax = chosen.finalTax;
   const finalLocalTax = Math.floor(finalIncomeTax * 0.1);
   const finalTaxTotal = finalIncomeTax + finalLocalTax;
 
@@ -1689,12 +1838,22 @@ export function calculateSettlementTax({
       dependents: dependentsDeduction,
       additional: additionalDeduction,
     },
+    useStandardCredit,
+    standardCreditComparison: {
+      specialFinalTax: specialResult.finalTax,
+      standardFinalTax: standardResult.finalTax,
+      specialTaxBase: specialBase.taxBase,
+      standardTaxBase: standardBase.taxBase,
+    },
     incomeDeductions: {
       total: incomeDeductionsTotal,
+      limitExcess: incomeDeductionLimitExcess,
       nationalPension,
-      healthInsurance,
-      employmentInsurance,
-      housingLoan: housingLoanInput,
+      // 표준세액공제를 택하면 특별소득공제(건강·고용보험료, 주택자금)는 적용하지 않는다
+      healthInsurance: useStandardCredit ? 0 : healthInsurance,
+      employmentInsurance: useStandardCredit ? 0 : employmentInsurance,
+      housingLoan: useStandardCredit ? 0 : housingLoanInput,
+      specialIncomeDeductionsWaived: useStandardCredit ? specialIncomeDeductions : 0,
       housingSavings: housingSavingsDeduction,
       personalPension: personalPensionDeduction,
       creditCard: cardDeduction,
@@ -1716,7 +1875,7 @@ export function calculateSettlementTax({
         donationCredit +
         rentCredit +
         pensionCreditRaw +
-        standardCredit
+        standardCreditRaw
       ),
       smeReduction,
       appliedSmeReduction,
@@ -1738,15 +1897,24 @@ export function calculateSettlementTax({
       appliedHometownDonationCredit,
       specialDonationCredit,
       appliedSpecialDonationCredit,
+      specialCarryDonationCredit: dch.specialCarry.credit,
+      appliedSpecialCarryDonationCredit,
+      specialCurrentDonationCredit: dch.specialCurrent.credit,
+      appliedSpecialCurrentDonationCredit,
       employeeStockDonationCredit,
       appliedEmployeeStockDonationCredit,
       generalDonationCredit,
       appliedGeneralDonationCredit,
       generalNonReligiousDonationCredit,
       appliedGeneralNonReligiousDonationCredit,
+      appliedGeneralNonReligiousCarryDonationCredit,
+      appliedGeneralNonReligiousCurrentDonationCredit,
       generalReligiousDonationCredit,
       appliedGeneralReligiousDonationCredit,
+      appliedGeneralReligiousCarryDonationCredit,
+      appliedGeneralReligiousCurrentDonationCredit,
       donationCarryoverCredit,
+      donationCarryoverNext,
       pensionCredit: pensionCreditRaw,
       appliedPensionCredit,
       childCredit,
@@ -1756,6 +1924,7 @@ export function calculateSettlementTax({
       marriageCredit,
       appliedMarriageCredit,
       standardCredit,
+      standardCreditRaw,
     },
     insuranceDetails: {
       generalPaid: finalGenInsurance,

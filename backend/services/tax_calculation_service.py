@@ -424,21 +424,53 @@ class TaxCalculationService:
         a = max(0, int(amount))
         return math.floor(a * 0.15) if a <= 10000000 else math.floor(10000000 * 0.15 + (a - 10000000) * 0.30)
 
+    DONATION_CARRYOVER_YEARS = 10
+
+    @staticmethod
+    def carryover_kind_of(type_str: str) -> str:
+        t = str(type_str or "").replace(" ", "")
+        if "특례" in t or "법정" in t:
+            return "special"
+        if "종교단체외" in t:
+            return "general"
+        if "종교" in t:
+            return "religious"
+        return "general"
+
+    @classmethod
+    def normalize_donation_carryover(cls, items: Optional[List[Dict[str, Any]]], tax_year: int = 2025) -> List[Dict[str, Any]]:
+        """전년도 이월 기부금: 기부연도 [과세연도-10, 과세연도-1], 금액>0, 기부연도 빠른 순"""
+        out = []
+        for it in items or []:
+            try:
+                year = int(it.get("year") or 0)
+                amount = int(str(it.get("amount") or 0).replace(",", "") or 0)
+            except (TypeError, ValueError):
+                continue
+            if amount <= 0 or not (tax_year - cls.DONATION_CARRYOVER_YEARS <= year <= tax_year - 1):
+                continue
+            out.append({"year": year, "kind": cls.carryover_kind_of(it.get("type")), "amount": amount, "used": 0})
+        return sorted(out, key=lambda e: e["year"])
+
     @classmethod
     def calculate_donation_credit(
         cls,
         details: Optional[List[Dict[str, Any]]],
         earned_income: int,
         fallback_amount: int = 0,
+        carryover: Optional[List[Dict[str, Any]]] = None,
+        tax_year: int = 2025,
     ) -> Dict[str, Any]:
-        """기부금 세액공제 (소득세법 제59조의4 ④, 조특법 제76조·제58조·제88조의4)
-        - 정치자금: 10만 원 이하 100/110, 10만~3천만 15%, 3천만 초과 25% (본인 기부분)
-        - 고향사랑: 연 500만 원 한도, 10만 원 이하 100/110, 초과분 15% (특별재난지역 30% 우선 배정) (본인 기부분)
-        - 우리사주조합: 근로소득금액 30% 한도 (본인 기부분)
-        - 특례(법정): 근로소득금액 100% 한도
-        - 일반(종교단체 외): (근로소득금액 − 특례) 30% 한도
-        - 일반(종교단체): (근로소득금액 − 특례) 10% + min(일반 잔여한도, 근로소득금액 20%)
-        - 특례·우리사주·일반: 1천만 원 이하 15%, 초과 30%
+        """기부금 세액공제 (소득세법 제59조의4 ④, 제61조, 조특법 제76조·제58조·제88조의4 ⑬)
+        공제대상금액 한도는 앞 종류의 공제대상금액을 빼고 아래 순서로 계산한다 (화면 엔진과 동일).
+        ① 정치자금(본인): 근로소득금액 100% — 10만 원 이하 100/110, 초과 15%, 3천만 초과분 25%
+        ② 고향사랑(본인): (근로소득금액 − ①) 100%, 연 2,000만 원 — 10만 원 이하 100/110, 초과 15%(특별재난지역 30%)
+        ③ 특례: (근로소득금액 − ① − ②) 100%
+        ④ 우리사주조합(본인): (근로소득금액 − ① − ② − ③) 30%
+        ⑤ 일반: 기준 = 근로소득금액 − ①~④, 종교단체 기부금이 있으면 기준×10% + min(기준×20%, 종교단체 외),
+           없으면 기준×30% (종교단체 외 먼저)
+        특례·우리사주·일반 공제율: 합계 1천만 원 이하 15%, 초과 30% (③→④→⑤ 순 구간 적용)
+        전년도 이월 특례·일반기부금(10년)은 같은 종류의 당해연도 기부금보다 먼저, 기부연도 빠른 순으로 한도를 쓴다.
         정치자금·고향사랑·우리사주조합 기부금은 조특법 세액공제로 표준세액공제와 함께 받을 수 있다(separate).
         """
         paid = {"political": 0, "home_general": 0, "home_disaster": 0, "employee_stock": 0,
@@ -469,32 +501,85 @@ class TaxCalculationService:
             # 종류별 내역이 없으면 종교단체 외 일반기부금으로 본다
             paid["general"] = max(0, int(fallback_amount or 0))
 
+        entries = cls.normalize_donation_carryover(carryover, tax_year)
+        carry_paid = {"special": 0, "general": 0, "religious": 0}
+        for e in entries:
+            carry_paid[e["kind"]] += e["amount"]
+
+        def use_carry(kind: str, room: int) -> int:
+            left, used = max(0, room), 0
+            for e in entries:
+                if e["kind"] != kind:
+                    continue
+                u = min(e["amount"], left)
+                e["used"] = u
+                left -= u
+                used += u
+            return used
+
         ei = max(0, int(earned_income or 0))
-        pol = paid["political"]
+        # ① 정치자금
+        pol = min(paid["political"], ei)
         political = (math.floor(min(pol, 100000) * 100 / 110)
                      + math.floor(min(max(0, pol - 100000), 29900000) * 0.15)
                      + math.floor(max(0, pol - 30000000) * 0.25))
-
-        home_total = min(paid["home_general"] + paid["home_disaster"], 5000000)
+        # ② 고향사랑
+        home_limit = max(0, min(20000000, ei - pol))
+        home_total = min(paid["home_general"] + paid["home_disaster"], home_limit)
         home_over = max(0, home_total - 100000)
         home_dis_over = min(paid["home_disaster"], home_over)
         hometown = (math.floor(min(home_total, 100000) * 100 / 110)
                     + math.floor(home_dis_over * 0.30)
                     + math.floor((home_over - home_dis_over) * 0.15))
+        # ③ 특례 (이월분 먼저)
+        spec_room = max(0, ei - pol - home_total)
+        spec_carry = use_carry("special", spec_room)
+        spec_elig = min(paid["special"], spec_room - spec_carry)
+        # ④ 우리사주조합
+        after_special = max(0, ei - pol - home_total - spec_carry - spec_elig)
+        emp_elig = min(paid["employee_stock"], math.floor(after_special * 0.30))
+        # ⑤ 일반 (종교단체 외 → 종교단체, 각각 이월분 먼저)
+        gen_base = max(0, after_special - emp_elig)
+        has_religious = paid["religious"] + carry_paid["religious"] > 0
+        non_rel_total = paid["general"] + carry_paid["general"]
+        gen_limit = (math.floor(gen_base * 0.10) + min(math.floor(gen_base * 0.20), non_rel_total)
+                     if has_religious else math.floor(gen_base * 0.30))
+        room = gen_limit
+        gen_carry = use_carry("general", room)
+        room -= gen_carry
+        gen_elig = min(paid["general"], room)
+        room -= gen_elig
+        rel_carry = use_carry("religious", room)
+        room -= rel_carry
+        rel_elig = min(paid["religious"], room)
 
-        spec_elig = min(paid["special"], ei)
-        special = cls._rate_15_30(spec_elig)
-        emp_elig = min(paid["employee_stock"], math.floor(ei * 0.30))
-        employee_stock = cls._rate_15_30(emp_elig)
-        gen_limit = max(0, math.floor((ei - spec_elig) * 0.30))
-        gen_elig = min(paid["general"], gen_limit)
-        general = cls._rate_15_30(gen_elig)
-        rel_limit = max(0, math.floor((ei - spec_elig) * 0.10) + min(max(0, gen_limit - gen_elig), math.floor(ei * 0.20)))
-        rel_elig = min(paid["religious"], rel_limit)
-        religious = cls._rate_15_30(rel_elig)
+        tier = {"used": 0}
+
+        def tier_credit(amt: int) -> int:
+            low = min(amt, max(0, 10000000 - tier["used"]))
+            tier["used"] += amt
+            return math.floor(low * 0.15 + (amt - low) * 0.30)
+
+        chunks = {}
+        for key, amt in (("special_carry", spec_carry), ("special", spec_elig), ("employee_stock", emp_elig),
+                         ("general_carry", gen_carry), ("general", gen_elig),
+                         ("religious_carry", rel_carry), ("religious", rel_elig)):
+            chunks[key] = {"amount": amt, "credit": tier_credit(amt)}
+        employee_stock = chunks["employee_stock"]["credit"]
+        special = chunks["special_carry"]["credit"] + chunks["special"]["credit"]
+        general = chunks["general_carry"]["credit"] + chunks["general"]["credit"]
+        religious = chunks["religious_carry"]["credit"] + chunks["religious"]["credit"]
 
         return {
             "paid": paid,
+            "carryover_paid": carry_paid,
+            "carryover_entries": entries,
+            "limit_excess": {
+                "special": max(0, paid["special"] - spec_elig),
+                "general": max(0, paid["general"] - gen_elig),
+                "religious": max(0, paid["religious"] - rel_elig),
+            },
+            "chunks": chunks,
             "political": political, "hometown": hometown, "employee_stock": employee_stock,
             "special": special, "general": general, "religious": religious,
             "special_pack": special + general + religious,
@@ -636,8 +721,10 @@ class TaxCalculationService:
                     elderly_deduction += 1000000
                 if dep.is_disabled:
                     disabled_deduction += 2000000
-                if dep.birth_order and dep.birth_order in (1, 2, 3):
-                    birth_order_counts[dep.birth_order] = birth_order_counts.get(dep.birth_order, 0) + 1
+                # 출산·입양 세액공제: 해당 과세연도 출생·입양 자녀 (첫째 1, 둘째 2, 셋째 이상 3)
+                if dep.relation == RelationType.CHILD and dep.birth_order and dep.birth_order >= 1:
+                    order_key = min(3, int(dep.birth_order))
+                    birth_order_counts[order_key] = birth_order_counts.get(order_key, 0) + 1
 
         total_personal_deduction = (
             self_deduction +
@@ -662,10 +749,14 @@ class TaxCalculationService:
         # 주택청약종합저축: 총급여 7천만 원 이하 (납입 300만 원 한도 × 40%)
         housing_sub = min(3000000, exp.housing_subscription) if (exp and total_salary <= 70000000) else 0
         housing_sub_ded = math.floor(housing_sub * 0.40)
+        # 주택임차차입금(특별소득공제) + 주택마련저축(조특법 제87조, 그 밖의 소득공제) 합계 연 400만 원
         combined_housing_saving = min(4000000, housing_rent_ded + housing_sub_ded)
+        housing_sub_part = min(housing_sub_ded, combined_housing_saving)
+        housing_rent_part = combined_housing_saving - housing_sub_part
         mortgage_interest = exp.mortgage_interest if exp else 0
         mortgage_ded = min(20000000, mortgage_interest)
-        total_special_income_deduction = health_ins + emp_ins + combined_housing_saving + mortgage_ded
+        # 특별소득공제 (소득세법 제52조): 건강·고용보험료, 주택임차차입금, 장기주택저당차입금 이자
+        total_special_income_deduction = health_ins + emp_ins + housing_rent_part + mortgage_ded
 
         # 3) 그 밖의 소득공제 (신용카드 등)
         cc_gen = exp.credit_card_general if exp else 0
@@ -698,11 +789,12 @@ class TaxCalculationService:
         venture_fund_ded = min(3000000, math.floor(int(rd_other.get("venture_fund_paid", 0) or 0) * 0.10))
         extra_other_deductions = personal_pension_old_ded + small_biz_ded + long_invest_ded + venture_fund_ded
 
-        total_other_income_deduction = card_deduction + extra_other_deductions
-        limit_target_other = card_deduction + small_biz_ded + long_invest_ded + venture_fund_ded
+        total_other_income_deduction = card_deduction + extra_other_deductions + housing_sub_part
+        # 소득공제 종합한도(조특법 제132조의2, 2,500만 원) 대상 중 특별소득공제가 아닌 항목 (개인연금저축은 제외)
+        limit_target_other = card_deduction + small_biz_ded + long_invest_ded + venture_fund_ded + housing_sub_part
 
         # 4) 종합한도 초과액
-        target_limit_sum = combined_housing_saving + mortgage_ded + limit_target_other
+        target_limit_sum = housing_rent_part + mortgage_ded + limit_target_other
         income_deduction_limit_excess = max(0, target_limit_sum - 25000000)
 
         total_income_deductions = (
@@ -950,9 +1042,11 @@ class TaxCalculationService:
 
         donation_spent = (exp.raw_details.get("donation_amount", 0) if exp and exp.raw_details else 0)
         donation_details = (exp.raw_details.get("donation_details") if exp and exp.raw_details else None) or None
-        don_calc = self.calculate_donation_credit(donation_details, earned_income_amount, donation_spent) if total_salary > 0 else {
-            "special_pack": 0, "separate": 0, "political": 0, "hometown": 0, "employee_stock": 0,
-            "special": 0, "general": 0, "religious": 0, "mode": "NONE", "paid": {}}
+        donation_carryover = (exp.raw_details.get("donation_carryover") if exp and exp.raw_details else None) or None
+        tax_year = int(getattr(session, "tax_year", None) or 2025)
+        don_calc = self.calculate_donation_credit(
+            donation_details, earned_income_amount if total_salary > 0 else 0, donation_spent if total_salary > 0 else 0,
+            carryover=donation_carryover if total_salary > 0 else None, tax_year=tax_year)
         don_credit = don_calc["special_pack"]               # 특별세액공제(특례·일반 기부금)
         tax_credit_donation_separate = don_calc["separate"]  # 정치자금·고향사랑·우리사주조합 (표준세액공제와 병행)
 
@@ -964,8 +1058,70 @@ class TaxCalculationService:
             rent_rate = 0.17 if total_salary <= 55000000 else 0.15
             tax_credit_monthly_rent = math.floor(rent_paid * rent_rate)
 
-        # 표준세액공제(13만 원)는 특별소득공제(보험료·주택자금)·특별세액공제·월세세액공제를
-        # 모두 신청하지 않는 경우에만 적용된다 (소득세법 제59조의4 ⑨). 두 경우의 세액을 실제로 계산해 유리한 쪽을 택한다.
+        # 연금계좌세액공제 산출액 (소득세법 제59조의3) — 표준/특별 비교에도 쓰이므로 먼저 계산
+        #   - 공제한도: 연금저축 600만 (퇴직연금 합산 900만) + min(ISA납입액 x 10%, 300만)
+        #   - 한도 차감순서: 퇴직연금 > 연금저축 > ISA퇴직연금 > ISA연금저축
+        #   - 공제율: 총급여 5,500만원 이하 15%, 초과 12%
+        raw_details = (exp.raw_details if exp and exp.raw_details else {}) or {}
+        pension_paid = {
+            "irp": (exp.irp_saving if exp else 0) or 0,
+            "saving": (exp.personal_pension_saving if exp else 0) or 0,
+            "isa_irp": int(raw_details.get("isa_irp_saving", 0) or 0),
+            "isa_saving": int(raw_details.get("isa_pension_saving", 0) or 0),
+        }
+        pension_alloc = self._allocate_pension_limits(pension_paid)
+        pension_saving = pension_alloc["applied"]["saving"] + pension_alloc["applied"]["isa_saving"]
+        irp_saving = pension_alloc["applied"]["irp"] + pension_alloc["applied"]["isa_irp"]
+        pension_account_total = pension_alloc["total"]
+        pension_rate = 0.15 if total_salary <= 55000000 else 0.12
+        tax_credit_pension_account_before_cap = math.floor(pension_account_total * pension_rate)
+
+        # ---------------------------------------------------------------------
+        # 세액감면·공제 적용순서 (소득세법 제60조, 원천세과-830, 2023.09.13.)
+        #   ① 세액감면(중소기업 취업자)
+        #   ② 이월공제 불가 세액공제: 근로소득 → 혼인 → 자녀 → 보장성보험 → 의료비 → 교육비
+        #      → 정치자금 → 고향사랑 → 우리사주조합 → 표준세액공제 → 월세
+        #   ③ 이월공제 가능 세액공제(소득세법 제61조, 10년): 특례(이월분 → 당해분) → 일반·종교단체 외(이월 → 당해)
+        #      → 일반·종교단체(이월 → 당해)
+        #   ④ 연금계좌: 감면·공제 합계가 산출세액을 초과하면 그 초과액을 한도로 공제받지 않은 것으로 봄
+        # 각 공제는 앞선 감면·공제를 차감하고 남은 산출세액 범위 안에서만 적용된다. (화면 엔진 taxCalculator.js와 동일)
+        # ---------------------------------------------------------------------
+        chunks = don_calc["chunks"]
+
+        def _allocate_credits(ct: int, sme: int, earned: int, use_standard: bool):
+            sp = (lambda v: 0) if use_standard else (lambda v: v)
+            order = [
+                ("세액감면(중소기업 취업자)", sme, "세액감면"),
+                ("근로소득세액공제", earned, "이월공제 불가"),
+                ("혼인세액공제", tax_credit_marriage, "이월공제 불가"),
+                ("자녀세액공제", tax_credit_child, "이월공제 불가"),
+                ("보장성보험료", sp(ins_credit), "이월공제 불가"),
+                ("의료비", sp(med_credit), "이월공제 불가"),
+                ("교육비", sp(edu_credit), "이월공제 불가"),
+                ("정치자금기부금", don_calc["political"], "이월공제 불가"),
+                ("고향사랑기부금", don_calc["hometown"], "이월공제 불가"),
+                ("우리사주조합기부금", don_calc["employee_stock"], "이월공제 불가"),
+                ("표준세액공제", 130000 if use_standard else 0, "이월공제 불가"),
+                ("월세액", sp(tax_credit_monthly_rent), "이월공제 불가"),
+                ("특례기부금(이월분)", sp(chunks["special_carry"]["credit"]), "이월공제 가능"),
+                ("특례기부금", sp(chunks["special"]["credit"]), "이월공제 가능"),
+                ("일반기부금(종교단체 외·이월분)", sp(chunks["general_carry"]["credit"]), "이월공제 가능"),
+                ("일반기부금(종교단체 외)", sp(chunks["general"]["credit"]), "이월공제 가능"),
+                ("일반기부금(종교단체·이월분)", sp(chunks["religious_carry"]["credit"]), "이월공제 가능"),
+                ("일반기부금(종교단체)", sp(chunks["religious"]["credit"]), "이월공제 가능"),
+                ("연금계좌", tax_credit_pension_account_before_cap, "초과분 미공제 간주"),
+            ]
+            remaining = max(0, ct)
+            alloc = []
+            for label, amount, group in order:
+                applied = min(max(0, int(amount or 0)), remaining)
+                remaining -= applied
+                alloc.append({"label": label, "computed": int(amount or 0), "applied": applied, "group": group})
+            return alloc, remaining, max(0, ct - sum(c["applied"] for c in alloc))
+
+        # 표준세액공제(13만 원)는 특별소득공제(건강·고용보험료, 주택자금)·특별세액공제·월세세액공제를
+        # 모두 신청하지 않는 경우에만 적용된다 (소득세법 제59조의4 ⑨). 두 경우를 모두 끝까지 계산해
+        # (표준 쪽은 특별소득공제를 빼고 과세표준·산출세액부터 다시) 결정세액이 더 적은 쪽을 택한다(같으면 특별).
         def _basic_tax(taxable: int):
             ct = self.calculate_income_tax(taxable)
             sme = min(2000000, math.floor(ct * 0.90)) if (session.is_sme_youth and ct > 0) else 0
@@ -976,9 +1132,9 @@ class TaxCalculationService:
         std_income_deductions = total_personal_deduction + total_pension_deduction + total_other_income_deduction - std_excess
         std_taxable = max(0, earned_income_amount - std_income_deductions)
         std_ct, std_sme, std_earned = _basic_tax(std_taxable)
-        tax_if_special = max(0, calculated_tax - tax_reduction_sme - tax_credit_earned_income - tax_credit_special - tax_credit_monthly_rent - tax_credit_donation_separate)
-        tax_if_standard = max(0, std_ct - std_sme - std_earned - 130000 - tax_credit_donation_separate)
-        special_pack_benefit = tax_if_standard + 130000 - tax_if_special  # 비교 기록용
+        tax_if_special = _allocate_credits(calculated_tax, tax_reduction_sme, tax_credit_earned_income, False)[2]
+        tax_if_standard = _allocate_credits(std_ct, std_sme, std_earned, True)[2]
+        special_pack_benefit = tax_if_standard - tax_if_special  # 비교 기록용 (양수면 특별세액공제가 유리)
 
         standard_tax_credit = 0
         if total_salary > 0 and tax_if_standard < tax_if_special:
@@ -1030,6 +1186,8 @@ class TaxCalculationService:
                 "donation_religious": don_calc["religious"],
                 "tax_credit_special": tax_credit_special,
                 "standard_tax_credit": standard_tax_credit,
+                "final_tax_if_special": tax_if_special,
+                "final_tax_if_standard": tax_if_standard,
             },
             "base_value": 130000 if standard_tax_credit > 0 else tax_credit_special,
             "calculated_amount": standard_tax_credit if standard_tax_credit > 0 else tax_credit_special,
@@ -1038,10 +1196,10 @@ class TaxCalculationService:
                 "special_credit": tax_credit_special,
                 "standard_credit": standard_tax_credit,
             },
-            "legal_formula": "특별세액공제(일반보험12%+장애인보험15%+의료비15%+교육비15%+기부금) vs 표준세액공제 13만 원 중 유리한 항목 선택",
+            "legal_formula": "결정세액 비교: [특별소득공제 + 특별세액공제(보험료·의료비·교육비·특례/일반기부금) + 월세] vs [특별소득공제 제외 재계산 + 표준세액공제 13만 원] 중 결정세액이 적은 쪽",
             "legal_basis": "소득세법 제59조의4(특별세액공제 및 표준세액공제)",
             "explanation": (
-                "표준세액공제(130,000원)가 특별세액공제 혜택보다 커 표준세액공제가 자동 적용되었습니다."
+                f"표준세액공제를 택한 결정세액 {tax_if_standard:,}원이 특별세액공제를 택한 경우 {tax_if_special:,}원보다 적어 표준세액공제(130,000원)가 적용되었습니다."
                 if standard_tax_credit > 0
                 else (
                     f"특별세액공제 합계 {tax_credit_special:,}원(일반보험 {gen_ins_credit:,}원, 장애인보험 {dis_ins_credit:,}원 포함)이 적용되었습니다."
@@ -1113,59 +1271,9 @@ class TaxCalculationService:
             "metadata_json": {"tax_credit_monthly_rent": tax_credit_monthly_rent},
         })
 
-        # 8) 연금계좌세액공제 (세액감면·공제 적용순서상 후순위로 공제)
-        #   - 공제한도: 연금저축 600만 (퇴직연금 합산 900만) + min(ISA납입액 x 10%, 300만)
-        #   - 한도 차감순서: 퇴직연금 > 연금저축 > ISA퇴직연금 > ISA연금저축
-        #   - 공제율: 총급여 5,500만원 이하 15%, 초과 12%
-        raw_details = (exp.raw_details if exp and exp.raw_details else {}) or {}
-        pension_paid = {
-            "irp": (exp.irp_saving if exp else 0) or 0,
-            "saving": (exp.personal_pension_saving if exp else 0) or 0,
-            "isa_irp": int(raw_details.get("isa_irp_saving", 0) or 0),
-            "isa_saving": int(raw_details.get("isa_pension_saving", 0) or 0),
-        }
-        pension_alloc = self._allocate_pension_limits(pension_paid)
-        pension_saving = pension_alloc["applied"]["saving"] + pension_alloc["applied"]["isa_saving"]
-        irp_saving = pension_alloc["applied"]["irp"] + pension_alloc["applied"]["isa_irp"]
-        pension_account_total = pension_alloc["total"]
-        pension_rate = 0.15 if total_salary <= 55000000 else 0.12
-        tax_credit_pension_account_before_cap = math.floor(pension_account_total * pension_rate)
 
-        # ---------------------------------------------------------------------
-        # 세액감면·공제 적용순서 (소득세법 제60조, 원천세과-830, 2023.09.13.)
-        #   ① 세액감면(중소기업 취업자)
-        #   ② 이월공제 불가 세액공제: 근로소득 → 혼인 → 자녀 → 보장성보험 → 의료비 → 교육비
-        #      → 정치자금 → 고향사랑 → 우리사주조합 → 표준세액공제 → 월세
-        #   ③ 이월공제 가능 세액공제(소득세법 제61조, 10년): 특례 → 일반(종교단체 외) → 일반(종교단체)
-        #   ④ 연금계좌: 감면·공제 합계가 산출세액을 초과하면 그 초과액을 한도로 공제받지 않은 것으로 봄
-        # 각 공제는 앞선 감면·공제를 차감하고 남은 산출세액 범위 안에서만 적용된다.
-        # (화면 엔진 taxCalculator.js와 동일한 순서)
-        # ---------------------------------------------------------------------
-        uses_special = standard_tax_credit == 0
-        credit_order = [
-            ("세액감면(중소기업 취업자)", tax_reduction_sme, "세액감면"),
-            ("근로소득세액공제", tax_credit_earned_income, "이월공제 불가"),
-            ("혼인세액공제", tax_credit_marriage, "이월공제 불가"),
-            ("자녀세액공제", tax_credit_child, "이월공제 불가"),
-            ("보장성보험료", ins_credit if uses_special else 0, "이월공제 불가"),
-            ("의료비", med_credit if uses_special else 0, "이월공제 불가"),
-            ("교육비", edu_credit if uses_special else 0, "이월공제 불가"),
-            ("정치자금기부금", don_calc["political"], "이월공제 불가"),
-            ("고향사랑기부금", don_calc["hometown"], "이월공제 불가"),
-            ("우리사주조합기부금", don_calc["employee_stock"], "이월공제 불가"),
-            ("표준세액공제", standard_tax_credit, "이월공제 불가"),
-            ("월세액", tax_credit_monthly_rent, "이월공제 불가"),
-            ("특례기부금", don_calc["special"] if uses_special else 0, "이월공제 가능"),
-            ("일반기부금(종교단체 외)", don_calc["general"] if uses_special else 0, "이월공제 가능"),
-            ("일반기부금(종교단체)", don_calc["religious"] if uses_special else 0, "이월공제 가능"),
-            ("연금계좌", tax_credit_pension_account_before_cap, "초과분 미공제 간주"),
-        ]
-        remaining_tax = max(0, calculated_tax)
-        credit_allocation = []
-        for label, amount, group in credit_order:
-            applied = min(max(0, int(amount or 0)), remaining_tax)
-            remaining_tax -= applied
-            credit_allocation.append({"label": label, "computed": int(amount or 0), "applied": applied, "group": group})
+        credit_allocation, remaining_tax, _ = _allocate_credits(
+            calculated_tax, tax_reduction_sme, tax_credit_earned_income, standard_tax_credit > 0)
         applied_map = {c["label"]: c["applied"] for c in credit_allocation}
         tax_credit_pension_account = applied_map["연금계좌"]
         available_tax_after_reduction = max(0, calculated_tax - tax_reduction_sme)
@@ -1214,6 +1322,47 @@ class TaxCalculationService:
             c["computed"] - c["applied"] for c in credit_allocation if c["group"] == "이월공제 가능"
         )
 
+        # 다음 과세기간으로 이월되는 특례·일반기부금 (공제대상금액 기준, 10년)
+        #  = 당해연도 한도초과액 + 산출세액 부족으로 공제받지 못한 금액(세액을 공제대상금액으로 환산)
+        #  - 이월분은 기부연도가 빠른 것부터 공제된 것으로 보고, 10년이 지난 이월분은 소멸
+        #  - 표준세액공제를 택하면 당해연도 기부금은 공제·이월하지 않고, 전년도 이월분은 그대로 이월
+        use_std = standard_tax_credit > 0
+
+        def _unapplied_amount(chunk: Dict[str, int], applied: int) -> int:
+            if chunk["credit"] <= 0:
+                return 0
+            return math.floor(chunk["amount"] * (chunk["credit"] - applied) / chunk["credit"] + 0.5)
+
+        donation_carryover_next: Dict[str, Any] = {"special": 0, "general": 0, "religious": 0, "expired": 0, "entries": []}
+        for kind, carry_label, cur_label in (
+            ("special", "특례기부금(이월분)", "특례기부금"),
+            ("general", "일반기부금(종교단체 외·이월분)", "일반기부금(종교단체 외)"),
+            ("religious", "일반기부금(종교단체·이월분)", "일반기부금(종교단체)"),
+        ):
+            carry_chunk, cur_chunk = chunks[f"{kind}_carry"], chunks[kind]
+            applied_left = 0 if use_std else max(0, carry_chunk["amount"] - _unapplied_amount(carry_chunk, applied_map[carry_label]))
+            for e in don_calc["carryover_entries"]:
+                if e["kind"] != kind:
+                    continue
+                here = min(e["used"], applied_left)
+                applied_left -= here
+                rem = e["amount"] - here
+                expires = e["year"] <= tax_year - self.DONATION_CARRYOVER_YEARS
+                donation_carryover_next["entries"].append(
+                    {"year": e["year"], "kind": kind, "amount": e["amount"], "applied": here, "remaining": rem, "expires": expires})
+                if expires:
+                    donation_carryover_next["expired"] += rem
+                else:
+                    donation_carryover_next[kind] += rem
+            if not use_std:
+                cur_next = don_calc["limit_excess"][kind] + _unapplied_amount(cur_chunk, applied_map[cur_label])
+                if cur_next > 0:
+                    donation_carryover_next["entries"].append(
+                        {"year": tax_year, "kind": kind, "amount": cur_next, "applied": 0, "remaining": cur_next, "expires": False})
+                    donation_carryover_next[kind] += cur_next
+        donation_carryover_next["total"] = (
+            donation_carryover_next["special"] + donation_carryover_next["general"] + donation_carryover_next["religious"])
+
         # 적용순서대로 배분한 실제 적용액 합계 (세액감면 제외분이 세액공제 합계)
         final_tax_credits = sum(c["applied"] for c in credit_allocation) - applied_map["세액감면(중소기업 취업자)"]
 
@@ -1228,11 +1377,12 @@ class TaxCalculationService:
             "output_snapshot": {"applied": {c["label"]: c["applied"] for c in credit_allocation},
                                 "order": [c["label"] for c in credit_allocation],
                                 "groups": {c["label"]: c["group"] for c in credit_allocation},
-                                "donation_carryover_credit": donation_carryover_credit},
+                                "donation_carryover_credit": donation_carryover_credit,
+                                "donation_carryover_next": donation_carryover_next},
             "legal_formula": (
                 "산출세액 범위 안에서 ① 세액감면 → ② 이월공제 불가 세액공제(근로소득 → 혼인 → 자녀 → 보험료 → 의료비 → 교육비 "
                 "→ 정치자금 → 고향사랑 → 우리사주 → 표준세액공제 → 월세) → ③ 이월공제 가능 세액공제(특례 → 일반(종교단체 외) "
-                "→ 일반(종교단체) 기부금) → ④ 연금계좌(초과분은 공제받지 않은 것으로 봄) 순으로 차감"
+                "→ 일반(종교단체) 기부금, 같은 종류는 전년도 이월분 먼저) → ④ 연금계좌(초과분은 공제받지 않은 것으로 봄) 순으로 차감"
             ),
             "legal_basis": "소득세법 제60조(세액공제 적용의 순서 등), 소득세법 제61조(기부금 이월공제), 원천세과-830(2023.09.13.), 조세특례제한법 제127조",
             "explanation": (
@@ -1240,6 +1390,7 @@ class TaxCalculationService:
                 + ", ".join(f"{c['label']} {c['computed'] - c['applied']:,}원" for c in credit_allocation if c["applied"] < c["computed"])
                 + (f" (특례·일반기부금 미공제 세액 {donation_carryover_credit:,}원은 다음 과세기간부터 10년간 이월공제 대상)"
                    if donation_carryover_credit > 0 else "")
+                + (f" — 다음 과세기간 이월 기부금 {donation_carryover_next['total']:,}원" if donation_carryover_next["total"] > 0 else "")
                 if any(c["applied"] < c["computed"] for c in credit_allocation)
                 else (
                     "모든 세액감면·공제가 산출세액 범위 안에서 전액 적용되었습니다."

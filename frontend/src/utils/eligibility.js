@@ -61,3 +61,30 @@ export const failsAgeRequirement = (m = {}) => {
 /** 기본공제 '해당없음'으로 보정해야 하는지 (소득요건 초과 또는 나이요건 미충족) */
 export const shouldExcludeBasicDeduction = (m = {}) =>
   !m.isSelf && m.relation !== '본인' && (isIncomeExcessMember(m) || failsAgeRequirement(m));
+
+const isChildRelation = (rel = '') => /자녀|손자|입양|직계비속|위탁/.test(String(rel));
+
+/**
+ * 출산·입양 세액공제 대상 여부 (소득세법 제59조의2 ③)
+ * - 해당 과세연도에 출생했거나(isNewborn) 입양 신고한(isAdoptedThisYear) 자녀
+ */
+export const isNewbornOrAdopted = (m = {}, taxYear = TAX_YEAR) => {
+  if (!isChildRelation(m.relation)) return false;
+  if (m.isNewborn || m.isAdoptedThisYear) return true;
+  return birthYearOf(m) === Number(taxYear);
+};
+
+/**
+ * 몇째 자녀인지 판정: 입력값(birthOrder)이 있으면 그 값,
+ * 없으면 가족 목록의 자녀를 출생연도가 빠른 순(같으면 목록 순)으로 세어 판정
+ */
+export const birthOrderOf = (m = {}, familyList = []) => {
+  const given = Number(m.birthOrder);
+  if (given > 0) return given;
+  const children = (Array.isArray(familyList) ? familyList : [])
+    .map((c, i) => ({ c, i, y: birthYearOf(c) ?? 9999 }))
+    .filter((x) => isChildRelation(x.c.relation))
+    .sort((a, b) => a.y - b.y || a.i - b.i);
+  const idx = children.findIndex((x) => x.c === m);
+  return idx >= 0 ? idx + 1 : 1;
+};

@@ -4,7 +4,7 @@
  * - 집계 금액은 화면 엔진(calculateSettlementTax) 결과를 그대로 사용해 두 엔진이 같은 입력을 보게 한다
  */
 import { collectDonationItems, collectPensionItems } from './taxCalculator.js';
-import { birthYearOf, cleanPersonName, isDisabledMember, shouldExcludeBasicDeduction } from './eligibility.js';
+import { birthOrderOf, birthYearOf, cleanPersonName, isDisabledMember, isNewbornOrAdopted, shouldExcludeBasicDeduction } from './eligibility.js';
 
 const n = (v) => {
   const x = Number(String(v ?? 0).replace(/,/g, ''));
@@ -66,7 +66,8 @@ export function buildServerInputs({ jsResult = {}, deductionData = {}, familyLis
       is_disabled: isDisabledMember(m),
       is_elderly: Boolean(by && 2025 - by >= 70),
       is_basic_deduction: isSelf ? true : !excluded,
-      birth_order: 0,
+      // 출산·입양 세액공제: 해당 과세연도 출생·입양 자녀만 순서(첫째·둘째·셋째 이상) 전달
+      birth_order: !isSelf && !excluded && isNewbornOrAdopted(m) ? birthOrderOf(m, familyList) : 0,
     };
   });
   if (!dependents.some((d) => d.relation === 'SELF')) {
@@ -143,6 +144,10 @@ export function buildServerInputs({ jsResult = {}, deductionData = {}, familyLis
       medical_infertility: n(dd.medicalInfertility),
       donation_amount: n(dd.donation),
       donation_details: donationDetails,
+      // 전년도 이월 기부금 (특례·일반, 기부연도별 이월 잔액)
+      donation_carryover: (Array.isArray(dd.donationCarryoverItems) ? dd.donationCarryoverItems : [])
+        .map((it) => ({ year: n(it.year), type: String(it.type || ''), amount: n(it.amount) }))
+        .filter((it) => it.amount > 0),
       education_details: educationDetails,
       personal_pension_old_paid: personalPensionOldPaid,
       small_biz_paid: n(dd.smallBiz),
@@ -199,7 +204,7 @@ export function compareCredits(jsResult = {}, auditLogs = [], server = {}) {
     ['기부금', tc.donationCredit, (Number(sp.don_credit) || 0) + amt(separate)],
     ['월세액', tc.rentCredit, amt(byName('월세액 세액공제'))],
     ['연금계좌', tc.pensionCredit, pensionBeforeCap ?? amt(pension)],
-    ['표준세액공제', tc.standardCredit, sp.standard_tax_credit],
+    ['표준세액공제', tc.standardCreditRaw ?? tc.standardCredit, sp.standard_tax_credit],
   ];
   const items = rows.map(([label, a, b]) => {
     const js = Math.round(Number(a) || 0);
@@ -215,9 +220,9 @@ export function compareCredits(jsResult = {}, auditLogs = [], server = {}) {
 
 /**
  * 세액감면·공제 적용순서별 실제 적용액 비교 (산출세액 한도 배분)
- * - 두 엔진 모두 같은 순서(세액감면 → 근로소득 → … → 연금계좌 → 표준세액공제)로 남은 산출세액 안에서 차감한다.
+ * - 두 엔진 모두 소득세법 제60조 순서로 남은 산출세액 안에서 차감한다:
+ *   ① 세액감면 → ② 이월공제 불가 세액공제 → ③ 이월공제 가능(특례·일반기부금, 같은 종류는 이월분 먼저) → ④ 연금계좌
  */
-// 소득세법 제60조 적용순서: ① 세액감면 → ② 이월공제 불가 → ③ 이월공제 가능(특례·일반기부금) → ④ 연금계좌
 export const CREDIT_APPLY_ORDER = [
   ['세액감면(중소기업 취업자)', 'appliedSmeReduction'],
   ['근로소득세액공제', 'appliedEarnedIncomeCredit'],
@@ -231,16 +236,19 @@ export const CREDIT_APPLY_ORDER = [
   ['우리사주조합기부금', 'appliedEmployeeStockDonationCredit'],
   ['표준세액공제', 'standardCredit'],
   ['월세액', 'appliedRentCredit'],
-  ['특례기부금', 'appliedSpecialDonationCredit'],
-  ['일반기부금(종교단체 외)', 'appliedGeneralNonReligiousDonationCredit'],
-  ['일반기부금(종교단체)', 'appliedGeneralReligiousDonationCredit'],
+  ['특례기부금(이월분)', 'appliedSpecialCarryDonationCredit'],
+  ['특례기부금', 'appliedSpecialCurrentDonationCredit'],
+  ['일반기부금(종교단체 외·이월분)', 'appliedGeneralNonReligiousCarryDonationCredit'],
+  ['일반기부금(종교단체 외)', 'appliedGeneralNonReligiousCurrentDonationCredit'],
+  ['일반기부금(종교단체·이월분)', 'appliedGeneralReligiousCarryDonationCredit'],
+  ['일반기부금(종교단체)', 'appliedGeneralReligiousCurrentDonationCredit'],
   ['연금계좌', 'appliedPensionCredit'],
 ];
 
 export function creditGroupOf(label) {
   if (label.startsWith('세액감면')) return '① 세액감면';
   if (label === '연금계좌') return '④ 초과분 미공제';
-  if (label === '특례기부금' || label.startsWith('일반기부금')) return '③ 이월 가능';
+  if (label.startsWith('특례기부금') || label.startsWith('일반기부금')) return '③ 이월 가능';
   return '② 이월 불가';
 }
 
