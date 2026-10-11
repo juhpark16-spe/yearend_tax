@@ -215,6 +215,7 @@ export default api;
 // ---------------------------------------------------------------------------
 export const SERVER_SESSION_KEY = 'selftax_server_session_id';
 
+let sessionCreatePromise = null;
 export async function ensureServerSession({ forceNew = false } = {}) {
   if (!forceNew) {
     try {
@@ -222,9 +223,16 @@ export async function ensureServerSession({ forceNew = false } = {}) {
       if (saved) return saved;
     } catch { /* 저장소 사용 불가 시 새로 발급 */ }
   }
-  const created = await taxService.createSession({ tax_year: 2025 });
-  try { localStorage.setItem(SERVER_SESSION_KEY, created.session_id); } catch { /* 저장 실패 무시 */ }
-  return created.session_id;
+  // 동시에 여러 곳에서 요청해도 세션은 하나만 만든다
+  if (!sessionCreatePromise) {
+    sessionCreatePromise = taxService.createSession({ tax_year: 2025 })
+      .then((created) => {
+        try { localStorage.setItem(SERVER_SESSION_KEY, created.session_id); } catch { /* 저장 실패 무시 */ }
+        return created.session_id;
+      })
+      .finally(() => { sessionCreatePromise = null; });
+  }
+  return sessionCreatePromise;
 }
 
 /** 세션 ID가 필요한 작업을 실행하고, 세션이 만료·삭제(404)되었거나 남의 세션(403)이면 새로 발급해 한 번 더 시도 */

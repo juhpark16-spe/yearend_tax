@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
-import { SERVER_SESSION_KEY, serverErrorMessage, taxService, withServerSession } from '../services/api';
-import { buildServerInputs, compareAppliedCredits, compareCredits, compareEngines } from '../utils/serverInputs';
-import { getSecureItem } from '../utils/secureStorage';
+import { SERVER_SESSION_KEY, serverErrorMessage, taxService } from '../services/api';
+import { recordVerificationMismatch, runServerCrossCheck } from '../utils/serverCrossCheck';
 
 const SESSION_KEY = SERVER_SESSION_KEY;
 const won = (v) => `${Math.round(Number(v) || 0).toLocaleString()}원`;
 
 /**
- * 서버 교차검증 카드
+ * 서버 교차검증 카드 — 검증 모드(개발자용, ?verify=1)에서만 표시 (근로자에게는 CalcVerificationLine 한 줄)
  * - 화면 엔진(taxCalculator.js) 결과는 그대로 두고, 같은 입력을 백엔드 결정론적 엔진(/calculate)으로 다시 계산해 비교한다.
  * - 백엔드가 기록한 7단계 감사 로그(/audit)를 타임라인으로 보여준다.
  */
@@ -42,28 +41,12 @@ export default function ServerCrossCheckCard({ jsResult, userName = '' }) {
     setState('running');
     setError('');
     try {
-      // 화면 엔진과 같은 저장 자료를 읽어 백엔드 입력으로 변환
-      const inputs = buildServerInputs({
-        jsResult,
-        deductionData: getSecureItem('selftax_deduction_data') || {},
-        familyList: getSecureItem('selftax_family_list', []) || [],
-        withholdingData: getSecureItem('selftax_withholding_data'),
-        previousJobs: getSecureItem('selftax_previous_jobs', []) || [],
-        userName,
-      });
-      const { result, audit } = await withServerSession(async (sessionId) => {
-        await taxService.saveSessionInputs(sessionId, inputs);
-        await taxService.calculateTax(sessionId);
-        return {
-          result: await taxService.getResult(sessionId),
-          audit: await taxService.getAuditTrail(sessionId),
-        };
-      });
-      const auditLogs = Array.isArray(audit?.logs) ? audit.logs : [];
-      setRows(compareEngines(jsResult, result));
-      setCreditRows(compareCredits(jsResult, auditLogs, result));
-      setAppliedRows(compareAppliedCredits(jsResult, auditLogs));
-      setLogs(auditLogs);
+      const r = await runServerCrossCheck({ jsResult, userName });
+      if (!r.allSame) recordVerificationMismatch(r.diffs, { refund: jsResult?.diffIncomeTax, source: 'verify-mode' });
+      setRows(r.rows);
+      setCreditRows(r.creditRows);
+      setAppliedRows(r.appliedRows);
+      setLogs(r.logs);
       setState('done');
     } catch (e) {
       setError(serverErrorMessage(e));
@@ -81,7 +64,7 @@ export default function ServerCrossCheckCard({ jsResult, userName = '' }) {
     <div className="w-full bg-white rounded-3xl border border-slate-200 shadow-2xs p-5 space-y-3">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-[11px] font-extrabold text-emerald-600 tracking-wide">서버 교차검증</p>
+          <p className="text-[11px] font-extrabold text-emerald-600 tracking-wide">검증 모드(개발자용) · 서버 교차검증</p>
           <h3 className="text-[15.5px] font-extrabold text-slate-900 leading-snug">
             두 개의 결정론적 엔진으로 다시 계산해 봐요
           </h3>

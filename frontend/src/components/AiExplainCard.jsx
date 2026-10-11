@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { taxService } from '../services/api';
 
 /**
@@ -36,6 +36,7 @@ export default function AiExplainCard({ taxResult }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
+  const cardRef = useRef(null);
 
   const requestExplain = async (t) => {
     setTopic(t);
@@ -56,8 +57,19 @@ export default function AiExplainCard({ taxResult }) {
     }
   };
 
+  // 근로자용 "계산 검증 완료" 줄(CalcVerificationLine)을 누르면 이 카드로 이동해 해당 해설을 연다
+  useEffect(() => {
+    const onOpen = (e) => {
+      const t = TOPICS.find((x) => x.key === e?.detail?.key) || TOPICS[0];
+      cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (!loading) requestExplain(t);
+    };
+    window.addEventListener('selftax:open-explain', onOpen);
+    return () => window.removeEventListener('selftax:open-explain', onOpen);
+  });
+
   return (
-    <div className="w-full bg-white rounded-3xl border border-indigo-100 shadow-2xs p-5 space-y-3">
+    <div ref={cardRef} className="w-full bg-white rounded-3xl border border-indigo-100 shadow-2xs p-5 space-y-3">
       <div className="flex items-center justify-between gap-2">
         <div>
           <p className="text-[11px] font-extrabold text-[#4F46E5] tracking-wide">AI 근거 보기</p>

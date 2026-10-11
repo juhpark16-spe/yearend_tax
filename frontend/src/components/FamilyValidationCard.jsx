@@ -44,9 +44,8 @@ export default function FamilyValidationCard({ familyList = [], userName = '' })
     <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-[11px] font-extrabold text-emerald-600 tracking-wide">서버 규칙검증</p>
           <h3 className="text-[14px] font-extrabold text-slate-900 leading-snug">부양가족 공제 요건을 다시 확인해 봐요</h3>
-          <p className="text-[11px] text-slate-500 mt-0.5">나이·소득 요건, 이중공제 위험, 근무지 합산을 백엔드 규칙 엔진이 판정합니다.</p>
+          <p className="text-[11px] text-slate-500 mt-0.5">나이·소득 요건, 이중공제 위험, 근무지 합산을 판정합니다.</p>
         </div>
         <button
           type="button"

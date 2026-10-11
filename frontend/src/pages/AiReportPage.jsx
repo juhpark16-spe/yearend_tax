@@ -5,6 +5,8 @@ import { calculateSettlementTax } from '../utils/taxCalculator';
 import { getSecureItem } from '../utils/secureStorage';
 import AiExplainCard from '../components/AiExplainCard';
 import ServerCrossCheckCard from '../components/ServerCrossCheckCard';
+import CalcVerificationLine from '../components/CalcVerificationLine';
+import { isVerifyMode } from '../utils/verifyMode';
 import { failsAgeRequirement } from '../utils/eligibility';
 
 /**
@@ -563,11 +565,14 @@ export default function AiReportPage({
               </div>
             </div>
 
-            {/* 카드 0-1: AI 근거 보기 (화면 계산값 → /rag/explain, 국세청 안내서 출처 표시) */}
-            <AiExplainCard taxResult={effectiveTaxData} />
+            {/* 카드 0-1: 계산 검증 — 근로자에게는 한 줄(같으면 '검증 완료', 다르면 '확인이 필요합니다'),
+                검증 모드(개발자용, ?verify=1)에서는 두 엔진 비교표·감사 로그 원문 카드 */}
+            {isVerifyMode()
+              ? <ServerCrossCheckCard jsResult={effectiveTaxData} userName={effectiveUserName} />
+              : <CalcVerificationLine jsResult={effectiveTaxData} userName={effectiveUserName} />}
 
-            {/* 카드 0-2: 서버 교차검증 (같은 입력을 백엔드 엔진으로 재계산 + 감사 로그) */}
-            <ServerCrossCheckCard jsResult={effectiveTaxData} userName={effectiveUserName} />
+            {/* 카드 0-2: AI 근거 보기 (화면 계산값 → /rag/explain, 국세청 안내서 출처 표시) — '왜 이 금액인가요?' */}
+            <AiExplainCard taxResult={effectiveTaxData} />
 
             {/* 카드 1: 부양가족공제 (요구사항 4: 실제 등록된 가족 및 공제금액 한눈에 파악) */}
             <div className="w-full bg-white rounded-3xl p-5 border border-slate-200/90 shadow-2xs flex flex-col items-center text-center space-y-4">

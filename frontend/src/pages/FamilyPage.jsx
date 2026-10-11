@@ -592,7 +592,7 @@ export default function FamilyPage({ onGoHome, onNext, onPrev, onNavigateStep, u
               </button>
             </div>
 
-            {/* 서버 규칙검증 (POST /tax/validate) */}
+            {/* 부양가족 공제 요건 검증 (POST /tax/validate) */}
             <FamilyValidationCard familyList={familyList} userName={loginName} />
           </div>
 
