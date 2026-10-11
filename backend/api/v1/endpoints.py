@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
+from backend.core.config import settings
 from backend.core.database import get_db
 from backend.models.session import TaxSession, TaxSessionStatus
 from backend.schemas.tax_schema import (
@@ -61,7 +62,9 @@ def create_session(
     """단일 사용자의 2025 귀속 연말정산 작업을 위한 세션을 발급합니다.
     """
     svc = TaxSessionService(db)
-    target_user_id = request.user_id or current_user_id
+    # 세션 소유자는 인증 토큰 기준으로만 정한다 (요청 본문의 user_id는 개발 환경 하위 호환용)
+    is_production = str(getattr(settings, "ENVIRONMENT", "")).lower() == "production"
+    target_user_id = current_user_id or (None if is_production else request.user_id)
     session = svc.create_session(
         user_id=target_user_id,
         tax_year=request.tax_year,
@@ -176,16 +179,18 @@ async def upload_documents(
 @router.post("/tax/classify", response_model=DocumentOCRResponse, summary="문서 4종 분류 (alias)")
 def ocr_and_classify_document(
     request: Optional[DocumentOCRRequest] = None,
+    current_user_id: Optional[str] = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ) -> DocumentOCRResponse:
     """파싱된 텍스트 기반 문서 4종(HOMETAX, WITHHOLDING, RESIDENT, FAMILY) 분류 및 엔티티 추출
     """
     doc_svc = DocumentService(db)
 
-    # 1. document_id가 주어진 경우 해당 문서 레코드에서 조회
+    # 1. document_id가 주어진 경우 해당 문서 레코드에서 조회 (문서가 속한 세션의 소유자만 허용)
     if request and request.document_id:
         doc = doc_svc.get_document(request.document_id)
         if doc:
+            verify_session_owner_manual(str(doc.session_id), current_user_id, db)
             return DocumentOCRResponse(
                 document_id=str(doc.id),
                 doc_type=doc.doc_type.value,

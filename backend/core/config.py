@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     # 연말정산 귀속 연도
     TAX_YEAR: int = 2025
 
+    # Supabase JWT 서명 검증 (둘 중 하나 이상 설정; 운영 환경에서는 필수)
+    SUPABASE_URL: str = ""            # 신규 서명키(JWKS, ES256/RS256)
+    SUPABASE_JWT_SECRET: str = ""     # 레거시 JWT 시크릿(HS256)
+    SUPABASE_JWT_AUDIENCE: str = "authenticated"
+
     # AI & API Keys
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o"

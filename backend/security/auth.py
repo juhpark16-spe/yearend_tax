@@ -33,49 +33,119 @@ def resolve_user_id(user_id_str: Optional[str]) -> Optional[uuid.UUID]:
         return uuid.uuid5(uuid.NAMESPACE_DNS, str(user_id_str))
 
 
-def extract_sub_from_jwt(token: str) -> Optional[str]:
-    """JWT 토큰의 페이로드에서 sub(사용자 식별자) 클레임을 추출하고 유효성(만료시간 등)을 검증합니다.
-    - 토큰 만료시간(exp)이 지난 경우 401 Unauthorized 발생
-    - payload 디코딩 및 sub 클레임 정합성 확인
+_JWKS_CACHE: dict = {"keys": None, "fetched_at": 0.0}
+_JWKS_TTL_SECONDS = 3600
+
+
+def _is_production() -> bool:
+    return str(getattr(settings, "ENVIRONMENT", "")).lower() == "production"
+
+
+def _unauthorized(detail: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=detail,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def _fetch_jwks() -> list:
+    """Supabase 프로젝트의 공개키(JWKS)를 가져와 1시간 캐시한다."""
+    now = time.time()
+    if _JWKS_CACHE["keys"] is not None and now - _JWKS_CACHE["fetched_at"] < _JWKS_TTL_SECONDS:
+        return _JWKS_CACHE["keys"]
+    base = str(getattr(settings, "SUPABASE_URL", "") or "").rstrip("/")
+    if not base:
+        return []
+    import urllib.request
+    with urllib.request.urlopen(f"{base}/auth/v1/.well-known/jwks.json", timeout=5) as resp:
+        keys = json.loads(resp.read().decode("utf-8")).get("keys", [])
+    _JWKS_CACHE.update({"keys": keys, "fetched_at": now})
+    return keys
+
+
+def _verification_configured() -> bool:
+    return bool(getattr(settings, "SUPABASE_JWT_SECRET", "") or getattr(settings, "SUPABASE_URL", ""))
+
+
+def _verify_jwt(token: str) -> dict:
+    """서명·만료·audience를 검증하고 payload를 반환한다. 실패 시 401.
+    - SUPABASE_JWT_SECRET 설정 시: HS256 (Supabase 레거시 JWT 시크릿)
+    - SUPABASE_URL 설정 시: JWKS 공개키 (ES256/RS256, Supabase 신규 서명키)
     """
+    from jose import JWTError, jwt as jose_jwt
+
+    audience = getattr(settings, "SUPABASE_JWT_AUDIENCE", "authenticated") or None
+    options = {"verify_aud": bool(audience)}
     try:
-        clean_token = token.strip()
-        if clean_token.lower().startswith("bearer "):
-            clean_token = clean_token[7:].strip()
-
-        # 데모 토큰 형식 대응 (예: demo-token-<uid>)
-        if clean_token.startswith("demo-token-"):
-            return clean_token[len("demo-token-"):]
-
-        parts = clean_token.split(".")
-        if len(parts) >= 2:
-            payload_b64 = parts[1]
-            rem = len(payload_b64) % 4
-            if rem > 0:
-                payload_b64 += "=" * (4 - rem)
-            payload_bytes = base64.urlsafe_b64decode(payload_b64)
-            payload_json = json.loads(payload_bytes.decode("utf-8"))
-
-            # 만료 시간(exp) 검증
-            exp = payload_json.get("exp")
-            if exp is not None and isinstance(exp, (int, float)):
-                if exp < time.time():
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="인증 토큰이 만료되었습니다. 다시 로그인해 주세요.",
-                        headers={"WWW-Authenticate": "Bearer"},
-                    )
-
-            user_sub = payload_json.get("sub") or payload_json.get("user_id")
-            if user_sub:
-                return str(user_sub)
-        elif clean_token:
-            return clean_token
+        header = jose_jwt.get_unverified_header(token)
+        alg = header.get("alg", "")
+        secret = getattr(settings, "SUPABASE_JWT_SECRET", "")
+        if alg == "HS256":
+            if not secret:
+                raise _unauthorized("인증 토큰 서명을 검증할 수 없습니다.")
+            return jose_jwt.decode(token, secret, algorithms=["HS256"], audience=audience, options=options)
+        keys = _fetch_jwks()
+        key = next((k for k in keys if k.get("kid") == header.get("kid")), None)
+        if key is None:
+            raise _unauthorized("인증 토큰의 서명 키를 찾을 수 없습니다.")
+        return jose_jwt.decode(token, key, algorithms=[alg], audience=audience, options=options)
     except HTTPException:
         raise
+    except JWTError as e:
+        if "expired" in str(e).lower():
+            raise _unauthorized("인증 토큰이 만료되었습니다. 다시 로그인해 주세요.")
+        raise _unauthorized("유효하지 않은 인증 토큰입니다.")
     except Exception:
-        pass
-    return None
+        raise _unauthorized("인증 토큰을 검증하지 못했습니다.")
+
+
+def _decode_unverified(token: str) -> dict:
+    """개발 환경 전용: 서명 검증 설정이 없을 때 payload만 해석한다 (만료 시간은 확인)."""
+    parts = token.split(".")
+    payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
+    payload = json.loads(base64.urlsafe_b64decode(payload_b64).decode("utf-8"))
+    exp = payload.get("exp")
+    if isinstance(exp, (int, float)) and exp < time.time():
+        raise _unauthorized("인증 토큰이 만료되었습니다. 다시 로그인해 주세요.")
+    return payload
+
+
+def extract_sub_from_jwt(token: str) -> Optional[str]:
+    """Authorization 토큰에서 사용자 식별자(sub)를 추출한다.
+    - 운영 환경: 서명 검증을 통과한 JWT만 인정 (검증 설정이 없으면 거부)
+    - 개발 환경: 서명 검증 설정이 있으면 검증, 없으면 payload 해석 + 만료 확인
+    - demo-token-<uid> 는 개발 환경에서만 허용
+    - JWT 형식이 아닌 임의 문자열은 사용자 ID로 인정하지 않는다
+    """
+    clean_token = (token or "").strip()
+    if clean_token.lower().startswith("bearer "):
+        clean_token = clean_token[7:].strip()
+    if not clean_token:
+        return None
+
+    if clean_token.startswith("demo-token-"):
+        if _is_production():
+            raise _unauthorized("운영 환경에서는 데모 토큰을 사용할 수 없습니다.")
+        return clean_token[len("demo-token-"):] or None
+
+    if clean_token.count(".") != 2:
+        return None
+
+    if _verification_configured():
+        payload = _verify_jwt(clean_token)
+    elif _is_production():
+        raise _unauthorized("서버에 토큰 서명 검증 설정(SUPABASE_URL 또는 SUPABASE_JWT_SECRET)이 없습니다.")
+    else:
+        try:
+            payload = _decode_unverified(clean_token)
+        except HTTPException:
+            raise
+        except Exception:
+            return None
+
+    sub = payload.get("sub") or payload.get("user_id")
+    return str(sub) if sub else None
 
 
 def get_current_user_id(
