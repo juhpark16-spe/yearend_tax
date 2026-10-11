@@ -123,18 +123,33 @@ export default function HometaxPage({
     setIsUploadComplete(false);
 
     let parsedResult = null;
+    let parseError = null;
     try {
       const formData = new FormData();
       formData.append('files', file);
       const res = await taxService.uploadDocuments(formData);
       if (res && res.length > 0 && res[0].parsed_json) {
         parsedResult = res[0].parsed_json;
+      } else {
+        parseError = 'PDF 파일에서 유효한 국세청 연말정산 간소화 자료 서식 및 텍스트를 추출하지 못했습니다.';
       }
     } catch (err) {
-      console.warn('Backend hometax upload/parse fallback triggered:', err);
+      console.error('Backend hometax upload/parse error:', err);
+      parseError = '백엔드 서버 통신 장애가 발생했거나 파일 형식을 분석할 수 없습니다.';
     }
 
     setTimeout(() => {
+      // 파싱 실패 또는 자료 누락 시 실패 원인 안내 (원천징수영수증 화면과 같은 방식)
+      if (parseError || !parsedResult) {
+        alert(
+          `[국세청 간소화 자료 분석 안내]\n\n실패 원인: ${parseError || '데이터 파싱 실패'}\n\n서버 장애 또는 PDF 인식 실패로 인해 공제 자료를 불러오지 못했습니다. 홈택스에서 내려받은 원본 PDF로 재시도하시거나 공제자료 화면에서 수기로 입력해 주세요.`
+        );
+      } else if (!Array.isArray(parsedResult.persons) || parsedResult.persons.length === 0) {
+        alert(
+          `[국세청 간소화 자료 일부 누락 안내]\n\n업로드된 PDF에서 인별 공제 자료(보험료·의료비·교육비·카드 등)를 찾지 못했습니다. 홈택스 '연말정산 간소화' 자료 PDF가 맞는지 확인하시거나 수기로 입력해 주세요.`
+        );
+      }
+
       const isOcr = Boolean(parsedResult?.is_ocr_fallback);
       setHometaxFile({
         name: fileName,

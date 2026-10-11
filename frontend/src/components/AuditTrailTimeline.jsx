@@ -156,11 +156,13 @@ export default function AuditTrailTimeline({
         step_name: '기납부세액 및 최종 환급/추가납부세액',
         calculation_type: 'FINAL_REFUND',
         input_snapshot: { final_decision_tax: finalIncomeTax, prepaid_tax: paidIncomeTax },
-        formula: '차감징수세액 = 결정세액 - 기납부세액 (음수: 환급, 양수: 추가납부)',
+        formula: '차감징수세액 = 결정세액 - 기납부세액, 소득세·지방소득세 각각 10원 미만 버림 (음수: 환급, 양수: 추가납부)',
         output_value: diffTotal,
         calculated_amount: diffTotal,
         legal_basis: '소득세법 제137조(연말정산 차감징수)',
-        explanation: diffTotal <= 0
+        explanation: diffTotal === 0
+          ? `결정세액과 기납부세액(${paidIncomeTax.toLocaleString()}원)이 같아 환급·추가납부가 없습니다.`
+          : diffTotal < 0
           ? `기납부세액(${paidIncomeTax.toLocaleString()}원)이 결정세액(${finalIncomeTax.toLocaleString()}원)보다 많아 ${Math.abs(diffTotal).toLocaleString()}원을 돌려받습니다(환급).`
           : `결정세액(${finalIncomeTax.toLocaleString()}원)이 기납부세액(${paidIncomeTax.toLocaleString()}원)보다 많아 ${diffTotal.toLocaleString()}원을 추가 납부해야 합니다.`,
       },

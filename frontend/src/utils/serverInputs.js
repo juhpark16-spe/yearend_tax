@@ -133,6 +133,8 @@ export function buildServerInputs({ jsResult = {}, deductionData = {}, familyLis
     education_child: n(dd.education),
     monthly_rent_paid: n(dd.rent),
     raw_details: {
+      // 본인 추가공제(한부모·부녀자) 신청 여부 — 화면 엔진과 같은 판정, 소득요건은 백엔드가 확인
+      self_additional: selfAdditionalFlags(familyList),
       isa_irp_saving: n(pensionPaid.isaIrp),
       isa_pension_saving: n(pensionPaid.isaSaving),
       general_insurance: n(jsResult.insuranceDetails?.generalPaid),
@@ -163,6 +165,15 @@ export function buildServerInputs({ jsResult = {}, deductionData = {}, familyLis
     expense,
     is_newly_married: n(jsResult.taxCredits?.marriageCredit) > 0,
   };
+}
+
+/** 본인 추가공제 신청 여부 (taxCalculator.js 인적공제와 같은 기준) */
+export function selfAdditionalFlags(familyList = []) {
+  const self = (Array.isArray(familyList) ? familyList : []).find((m) => m && (m.isSelf || m.relation === '본인'));
+  if (!self) return { single_parent: false, woman: false };
+  const singleParent = Boolean(self.isSingleParent || (self.singleParentDeduction && self.singleParentDeduction !== '해당없음'));
+  const woman = !singleParent && Boolean(self.isWoman || (self.womanDeduction && self.womanDeduction !== '해당없음'));
+  return { single_parent: singleParent, woman };
 }
 
 /** 화면 엔진 결과와 백엔드 결과를 단계별로 비교 */

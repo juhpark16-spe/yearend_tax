@@ -86,7 +86,7 @@ export default function TaxResultPage({
       console.error('Tax calculation error in TaxResultPage:', err);
       return {
         diffTotal: 0,
-        isRefund: true,
+        isRefund: false,
         totalSalary: 0,
         earnedIncome: 0,
         taxBase: 0,
@@ -151,7 +151,9 @@ export default function TaxResultPage({
           </h2>
           <p className="text-xs text-slate-400 font-medium">
             {taxResult.diffTotal === 0
-              ? '등록된 신고 자료가 없어 예상세액이 0원으로 계산되었어요.'
+              ? (taxResult.hasUserData
+                ? '결정세액과 이미 낸 세금(기납부세액)이 같아 환급·추가납부가 없어요.'
+                : '등록된 신고 자료가 없어 예상세액이 0원으로 계산되었어요.')
               : taxResult.isRefund
               ? '차감납부(환급)세액에 음수(-) 표기가 있으면 환급이에요!'
               : '차감납부(환급)세액에 양수(+) 표기가 있으면 추가 납부예요.'}

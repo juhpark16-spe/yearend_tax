@@ -201,6 +201,12 @@ class TaxCalculationService:
     # 5. 자녀세액공제 산출 (소득세법 제59조의2, TAX_RULES 5.3 2025 개정안)
     # =========================================================================
     @staticmethod
+    def truncate_under_10(amount: int) -> int:
+        """10원 미만 버림 (0원 쪽으로): 12,345 → 12,340, -12,345 → -12,340"""
+        a = int(amount)
+        return (abs(a) // 10 * 10) * (1 if a >= 0 else -1)
+
+    @staticmethod
     def calculate_child_tax_credit(eligible_children_count: int, birth_order_counts: Dict[int, int]) -> int:
         """기본공제 대상 자녀(8세 이상) 및 당해 연도 출산/입양 자녀 세액공제 계산
         - 1명: 25만 원 / 2명: 55만 원 / 3명 이상: 55만 원 + (2명 초과 1명당 40만 원)
@@ -726,16 +732,28 @@ class TaxCalculationService:
                     order_key = min(3, int(dep.birth_order))
                     birth_order_counts[order_key] = birth_order_counts.get(order_key, 0) + 1
 
+        exp = self.db.query(ExpenseDeduction).filter(ExpenseDeduction.session_id == sess_uuid).first()
+
+        # 본인 추가공제 (소득세법 제51조, 화면 엔진과 동일 기준)
+        #  - 한부모: 본인 100만 원
+        #  - 부녀자: 근로소득금액 3천만 원 이하 여성 근로자 본인 50만 원 (한부모와 중복 시 한부모 우선)
+        self_flags = ((exp.raw_details or {}).get("self_additional") if exp else None) or {}
+        woman_deduction = 0
+        if total_salary > 0:
+            if self_flags.get("single_parent"):
+                single_parent_deduction = 1000000
+            elif self_flags.get("woman") and earned_income_amount <= 30000000:
+                woman_deduction = 500000
+
         total_personal_deduction = (
             self_deduction +
             spouse_deduction +
             dependents_deduction +
             elderly_deduction +
             disabled_deduction +
-            single_parent_deduction
+            single_parent_deduction +
+            woman_deduction
         )
-
-        exp = self.db.query(ExpenseDeduction).filter(ExpenseDeduction.session_id == sess_uuid).first()
 
         # 1) 연금보험료 공제
         national_pension = exp.national_pension if exp and exp.national_pension > 0 else 0
@@ -818,6 +836,8 @@ class TaxCalculationService:
             "input_snapshot": {
                 "earned_income_amount": earned_income_amount,
                 "personal_deduction": total_personal_deduction,
+                "single_parent_deduction": single_parent_deduction,
+                "woman_deduction": woman_deduction,
                 "pension_deduction": total_pension_deduction,
                 "special_income_deduction": total_special_income_deduction,
                 "other_income_deduction": total_other_income_deduction,
@@ -1405,7 +1425,12 @@ class TaxCalculationService:
         # STEP 6. 결정세액 확정 (Step 6)
         # ---------------------------------------------------------------------
         final_decision_tax = max(0, available_tax_after_reduction - final_tax_credits)
-        final_refund_amount = final_decision_tax - total_prepaid_tax
+        # 차감징수세액은 원천징수영수증과 같이 10원 미만을 버린다 (환급·추가납부 모두 0원 쪽으로 버림)
+        final_refund_amount = self.truncate_under_10(final_decision_tax - total_prepaid_tax)
+        # 지방소득세: 결정세액의 10%, 차감징수세액 10원 미만 버림
+        final_local_tax = math.floor(final_decision_tax * 0.1)
+        total_prepaid_local_tax = sum(int(getattr(wp, "prepaid_local_tax", 0) or 0) for wp in (workplaces or []))
+        final_local_refund_amount = self.truncate_under_10(final_local_tax - total_prepaid_local_tax)
 
         if total_salary == 0:
             calculated_tax = 0
@@ -1415,6 +1440,9 @@ class TaxCalculationService:
             final_refund_amount = 0
             total_prepaid_tax = 0
             final_tax_credits = 0
+            final_local_tax = 0
+            total_prepaid_local_tax = 0
+            final_local_refund_amount = 0
 
         audit_steps.append({
             "sequence_order": len(audit_steps) + 1,
@@ -1467,8 +1495,11 @@ class TaxCalculationService:
                 "total_prepaid_tax": total_prepaid_tax,
                 "final_refund_amount": final_refund_amount,
                 "is_refund": final_refund_amount < 0,
+                "final_local_tax": final_local_tax,
+                "total_prepaid_local_tax": total_prepaid_local_tax,
+                "final_local_refund_amount": final_local_refund_amount,
             },
-            "legal_formula": "차감징수세액 = 결정세액 - 기납부세액 (음수: 환급, 양수: 추가납부)",
+            "legal_formula": "차감징수세액 = 결정세액 - 기납부세액, 소득세·지방소득세 각각 10원 미만 버림 (음수: 환급, 양수: 추가납부)",
             "legal_basis": "소득세법 제137조(연말정산 차감징수)",
             "explanation": (
                 f"기납부세액({total_prepaid_tax:,}원)이 결정세액({final_decision_tax:,}원)보다 많아 {abs(final_refund_amount):,}원을 환급받습니다."

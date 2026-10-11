@@ -166,7 +166,11 @@ export default function AiReportPage({
   const [unclaimedExpandInsurance, setUnclaimedExpandInsurance] = useState(false);
 
   // 세액 계산 데이터 실제값 매핑
-  const isRefund = effectiveTaxData?.isRefund !== undefined ? effectiveTaxData.isRefund : (effectiveTaxData?.diffTotal !== undefined ? effectiveTaxData.diffTotal <= 0 : true);
+  // 환급 여부: 차감징수세액이 음수일 때만 환급, 0원은 환급·추가납부 없음 (백엔드와 동일)
+  const isRefund = effectiveTaxData?.diffTotal !== undefined
+    ? Number(effectiveTaxData.diffTotal) < 0
+    : Boolean(effectiveTaxData?.isRefund);
+  const isZeroSettlement = effectiveTaxData?.diffTotal !== undefined && Number(effectiveTaxData.diffTotal) === 0;
   const refundAmount = effectiveTaxData?.refundTotal ?? 0;
   const refundIncomeTax = effectiveTaxData?.refundIncomeTax ?? 0;
   const refundLocalTax = effectiveTaxData?.refundLocalTax ?? 0;
@@ -314,11 +318,15 @@ export default function AiReportPage({
       icon: '🧾',
     },
     {
-      title: isRefund ? '최종 결정세액 및 환급액 확정 리포트 완성' : '최종 결정세액 및 납부세액 확정 리포트 완성',
-      desc: isRefund
+      title: isZeroSettlement
+        ? '최종 결정세액 확정 리포트 완성'
+        : isRefund ? '최종 결정세액 및 환급액 확정 리포트 완성' : '최종 결정세액 및 납부세액 확정 리포트 완성',
+      desc: isZeroSettlement
+        ? `결정세액 ${finalIncomeTax.toLocaleString()}원 확정 ➔ 기납부세액과 같아 환급·추가납부 없음`
+        : isRefund
         ? `결정세액 ${finalIncomeTax.toLocaleString()}원 확정 ➔ 최종 환급세액 ${refundAmount.toLocaleString()}원 도출!`
         : `결정세액 ${finalIncomeTax.toLocaleString()}원 확정 ➔ 최종 납부세액 ${refundAmount.toLocaleString()}원 산출`,
-      icon: isRefund ? '🎉' : '📋',
+      icon: isZeroSettlement ? '✅' : isRefund ? '🎉' : '📋',
     },
   ];
 
@@ -499,17 +507,21 @@ export default function AiReportPage({
             {/* 카드 0: 연말정산 결과 (요구사항 3: 납부세액/환급액에 따라 2D 일러스트 자동 전환) */}
             <div className="w-full bg-white rounded-3xl p-5 border border-slate-200/90 shadow-2xs flex flex-col items-center text-center space-y-3.5">
               <div className={`inline-block px-3.5 py-1 rounded-full text-[11.5px] font-extrabold border ${
-                isRefund
+                isZeroSettlement
+                  ? 'bg-slate-50 text-slate-700 border-slate-200'
+                  : isRefund
                   ? 'bg-[#ECFDF5] text-[#059669] border-emerald-100'
                   : 'bg-[#FFF1F2] text-[#E11D48] border-rose-100'
               }`}>
-                {isRefund ? `🎉 ${taxYear}년 연말정산 환급 결과` : `📋 ${taxYear}년 연말정산 납부(징수) 결과`}
+                {isZeroSettlement
+                  ? `✅ ${taxYear}년 연말정산 결과 (환급·추가납부 없음)`
+                  : isRefund ? `🎉 ${taxYear}년 연말정산 환급 결과` : `📋 ${taxYear}년 연말정산 납부(징수) 결과`}
               </div>
 
               {/* 2D 일러스트: 환급 시 지갑&환급금 일러스트, 추가납부 시 세금고지&납부 일러스트 적용 */}
               <div className="w-52 h-44 flex items-center justify-center py-1">
                 <img
-                  src={isRefund ? '/assets/report_refund_2d.jpg' : '/assets/report_payment_2d.jpg'}
+                  src={isRefund || isZeroSettlement ? '/assets/report_refund_2d.jpg' : '/assets/report_payment_2d.jpg'}
                   alt={isRefund ? `${taxYear}년 환급 결과 2D 일러스트` : `${taxYear}년 납부 결과 2D 일러스트`}
                   className="max-h-40 max-w-full object-contain rounded-2xl shadow-xs"
                 />

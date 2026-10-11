@@ -2,6 +2,7 @@
 - 1차: pdfplumber (텍스트 레이어 및 표 추출, 컨텍스트 매니저로 메모리 누수 방지)
 - 2차: pypdf (pdfplumber 실패 시 보조 추출)
 - 3차: 스캔본/촬영본 대비 GPT-4o Vision 클라우드 OCR Fallback (공백 제외 20자 미만 시)
+  · 외부 전송 전 로컬 OCR로 주민등록번호 뒷자리를 이미지에서 가리며, 가릴 수 없으면 전송하지 않음
 - 원본 PDF 디스크 저장 절대 금지 (인메모리 io.BytesIO 처리)
 - 추출 즉시 주민등록번호 인메모리 마스킹 처리
 - PRD_v3.0.md, ERD_v2.0.md, API_v1.0.md 준수
@@ -21,6 +22,11 @@ from backend.parser.classifier import DocumentClassifier
 from backend.parser.extractor import DocumentEntityExtractor
 from backend.schemas.ocr_output import OCRParsedDocument
 from backend.security.pii_mask import PIIMasker
+from backend.security.image_pii_mask import (
+    ImageMaskingFailed,
+    ImageMaskingUnavailable,
+    mask_rrn_in_image,
+)
 
 
 class PDFParser:
@@ -70,7 +76,8 @@ class PDFParser:
         
         - pypdfium2를 통해 인메모리로 각 페이지를 렌더링 (디스크 저장 금지)
         - ThreadPoolExecutor를 사용해 병렬로 Vision API를 호출하여 처리 속도 극대화
-        - 프롬프트에 주민등록번호 뒷자리 마스킹 지침 부여
+        - 외부 전송 전 로컬 OCR로 이미지 속 주민등록번호 뒷자리를 검은 박스로 가림 (가릴 수 없으면 전송 중단)
+        - 프롬프트에도 주민등록번호 뒷자리 마스킹 지침 부여 (2중 보호)
         - 텍스트 길이가 공백 제외 20자 미만일 때 발동합니다.
         """
         api_key = self.openai_api_key or getattr(settings, "OPENAI_API_KEY", None) or os.getenv("OPENAI_API_KEY")
@@ -83,21 +90,35 @@ class PDFParser:
             import pypdfium2 as pdfium
             from openai import OpenAI
 
-            client = OpenAI(api_key=api_key)
             pdf = pdfium.PdfDocument(file_bytes)
             total_pages = len(pdf)
 
             # 최대 20페이지까지 처리 (연말정산 간소화 자료 통상 분량)
             pages_to_process = min(total_pages, 20)
 
-            # 1. 인메모리 이미지 렌더링 (pypdfium2 PdfDocument 객체는 메인 스레드에서 접근)
+            # 1. 인메모리 이미지 렌더링 + 주민등록번호 마스킹 (pypdfium2 PdfDocument 객체는 메인 스레드에서 접근)
             page_b64_list: List[Tuple[int, str]] = []
+            skipped_pages = 0
             for i in range(pages_to_process):
                 page = pdf[i]
                 img = page.render(scale=1.5).to_pil()
+                try:
+                    img, _masked_count = mask_rrn_in_image(img)
+                except ImageMaskingUnavailable:
+                    # 로컬 OCR이 없으면 원본 이미지를 외부로 보내지 않는다 (fail-closed)
+                    return (
+                        f"[스캔본 이미지 서류 감지: {file_name}] 주민등록번호를 가릴 로컬 OCR(rapidocr-onnxruntime)이 "
+                        "설치되어 있지 않아 외부 OCR로 보내지 않았습니다. 수기 입력 및 직접 확인이 필요합니다."
+                    )
+                except ImageMaskingFailed:
+                    skipped_pages += 1
+                    continue
                 buf = io.BytesIO()
                 img.save(buf, format="JPEG", quality=80)
                 page_b64_list.append((i, base64.b64encode(buf.getvalue()).decode("utf-8")))
+
+            # 마스킹이 끝난 이미지만 외부 OCR 클라이언트로 보낸다
+            client = OpenAI(api_key=api_key)
 
             # 2. 개별 페이지 Vision OCR 호출 함수
             def ocr_single_page(item: Tuple[int, str]) -> Tuple[int, str]:
@@ -133,8 +154,14 @@ class PDFParser:
                 except Exception:
                     return idx, ""
 
+            if not page_b64_list:
+                return (
+                    f"[스캔본 이미지 서류 감지: {file_name}] 개인정보를 안전하게 가릴 수 없어 외부 OCR로 보내지 않았습니다. "
+                    "수기 입력 및 직접 확인이 필요합니다."
+                )
+
             # 3. ThreadPoolExecutor로 병렬 호출
-            max_workers = min(pages_to_process, 6)
+            max_workers = max(1, min(len(page_b64_list), 6))
             results = ["" for _ in range(pages_to_process)]
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = [executor.submit(ocr_single_page, item) for item in page_b64_list]

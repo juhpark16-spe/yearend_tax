@@ -454,6 +454,12 @@ export function calculateDonationCredit({
   };
 }
 
+/** 10원 미만 버림 (0원 쪽으로): 12,345 → 12,340, -12,345 → -12,340 */
+export function truncateUnder10(amount) {
+  const a = Math.trunc(Number(amount) || 0);
+  return Math.trunc(a / 10) * 10 || 0; // -0 방지
+}
+
 // 1. 근로소득공제 계산 (2025년 기준, 최대 2,000만원 한도)
 export function calculateEarnedIncomeDeduction(salary) {
   const s = Math.max(0, Number(salary) || 0);
@@ -706,7 +712,7 @@ export function calculateSettlementTax({
       diffIncomeTax: 0,
       diffLocalTax: 0,
       diffTotal: 0,
-      isRefund: true,
+      isRefund: false,
       refundTotal: 0,
       refundIncomeTax: 0,
       refundLocalTax: 0,
@@ -1796,14 +1802,15 @@ export function calculateSettlementTax({
   const finalLocalTax = Math.floor(finalIncomeTax * 0.1);
   const finalTaxTotal = finalIncomeTax + finalLocalTax;
 
-  // 10. 차감납부(환급)세액 = 결정세액 - 기납부세액
+  // 10. 차감징수(환급)세액 = 결정세액 - 기납부세액
   // 음수면 환급(정부에서 돌려받음), 양수면 추가납부
-  const diffIncomeTax = finalIncomeTax - paidIncomeTax;
-  const diffLocalTax = finalLocalTax - paidLocalTax;
+  // 원천징수영수증과 같이 소득세·지방소득세 각각 10원 미만을 버린다 (0원 쪽으로: -12,345 → -12,340)
+  const diffIncomeTax = truncateUnder10(finalIncomeTax - paidIncomeTax);
+  const diffLocalTax = truncateUnder10(finalLocalTax - paidLocalTax);
   const diffTotal = diffIncomeTax + diffLocalTax;
 
-  // 환급 여부 (음수이면 환급)
-  const isRefund = diffTotal <= 0;
+  // 환급 여부 (음수일 때만 환급, 0원은 환급·추가납부 없음 — 백엔드와 동일)
+  const isRefund = diffTotal < 0;
   const refundTotal = Math.abs(diffTotal);
   const refundIncomeTax = Math.abs(diffIncomeTax);
   const refundLocalTax = Math.abs(diffLocalTax);

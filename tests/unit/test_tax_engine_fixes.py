@@ -282,3 +282,33 @@ def test_standard_credit_compares_full_final_tax(db):
     cmp_step = _step(logs, 5, "특별세액공제 및 표준세액공제 비교")
     snap = cmp_step.input_snapshot
     assert result.final_decision_tax == min(snap["final_tax_if_special"], snap["final_tax_if_standard"])
+
+
+def test_refund_truncated_under_10_won():
+    t = TaxCalculationService.truncate_under_10
+    assert t(12_345) == 12_340 and t(-12_345) == -12_340 and t(-5) == 0 and t(0) == 0
+
+
+def test_final_refund_and_local_tax_truncated(db):
+    ts = _session(db, 40_000_000, prepaid=1_234_567)
+    result, logs = TaxCalculationService(db).calculate_and_save(session_id=str(ts.id))
+    assert result.final_refund_amount % 10 == 0
+    assert result.final_refund_amount == TaxCalculationService.truncate_under_10(result.final_decision_tax - 1_234_567)
+    step7 = _step(logs, 7)
+    assert step7.output_snapshot["final_local_refund_amount"] % 10 == 0
+
+
+def test_single_parent_and_woman_additional_deduction(db):
+    base = _session(db, 30_000_000, email="a@x.com")
+    r0, _ = TaxCalculationService(db).calculate_and_save(session_id=str(base.id))
+    sp = _session(db, 30_000_000, email="b@x.com", expense={"raw_details": {"self_additional": {"single_parent": True, "woman": True}}})
+    r1, _ = TaxCalculationService(db).calculate_and_save(session_id=str(sp.id))
+    assert r1.total_personal_deduction - r0.total_personal_deduction == 1_000_000   # 한부모 우선 (중복 불가)
+    wm = _session(db, 30_000_000, email="c@x.com", expense={"raw_details": {"self_additional": {"woman": True}}})
+    r2, _ = TaxCalculationService(db).calculate_and_save(session_id=str(wm.id))
+    assert r2.total_personal_deduction - r0.total_personal_deduction == 500_000
+    high = _session(db, 60_000_000, email="d@x.com", expense={"raw_details": {"self_additional": {"woman": True}}})
+    high0 = _session(db, 60_000_000, email="e@x.com")
+    r3, _ = TaxCalculationService(db).calculate_and_save(session_id=str(high.id))
+    r4, _ = TaxCalculationService(db).calculate_and_save(session_id=str(high0.id))
+    assert r3.total_personal_deduction == r4.total_personal_deduction        # 근로소득금액 3천만 초과 → 부녀자 제외
