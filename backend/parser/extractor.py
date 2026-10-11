@@ -932,15 +932,26 @@ class DocumentEntityExtractor:
                     person["items"]["employment_insurance"] = max(person["items"]["employment_insurance"], val)
 
             # 3. 국민연금보험료
+            #  국세청 간소화 서식의 '합계' 행에서 [직장가입자 고지금액 합계] + [지역가입자 등 납부금액 합계]를 더한다
+            #  (지역가입자 등 납부금액에는 추납보험료·실업크레딧 납부금액이 포함됨)
+            #  두 열 합계를 읽지 못한 서식만 기존처럼 총합계/인별합계 값을 쓴다
             elif "국민연금" in section_title or "공적연금" in section_title:
-                m = re.findall(r'(?:인별합계(?:금액)?|총\s*합\s*계|합\s*계)[^\d\n]*[:：]?\s*([\d,]{4,})', clean_p)
+                pension_cols = re.search(r'(?m)^\s*합\s*계\s*[:：]?\s*([\d,]+)\s+([\d,]+)\s*$', clean_p)
                 val = 0
-                if m:
-                    amts = [int(x.replace(",", "")) for x in m if not (2020 <= int(x.replace(",", "")) <= 2030)]
-                    if amts:
-                        val = max(amts)
-                elif amt > 0:
-                    val = amt
+                if pension_cols:
+                    workplace_amt = int(pension_cols.group(1).replace(",", ""))
+                    regional_amt = int(pension_cols.group(2).replace(",", ""))
+                    val = workplace_amt + regional_amt
+                    person["items"]["national_pension_workplace"] = workplace_amt
+                    person["items"]["national_pension_regional"] = regional_amt
+                else:
+                    m = re.findall(r'(?:인별합계(?:금액)?|총\s*합\s*계|합\s*계)[^\d\n]*[:：]?\s*([\d,]{4,})', clean_p)
+                    if m:
+                        amts = [int(x.replace(",", "")) for x in m if not (2020 <= int(x.replace(",", "")) <= 2030)]
+                        if amts:
+                            val = max(amts)
+                    elif amt > 0:
+                        val = amt
                 if val > 0:
                     results["national_pension"] = max(results["national_pension"], val)
                     person["items"]["national_pension"] = max(person["items"]["national_pension"], val)
