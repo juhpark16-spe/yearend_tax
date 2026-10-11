@@ -5,8 +5,10 @@
  * 1. "로그인 없이 데모 바로 둘러보기" 클릭 시: 이전 비로그인 업로드/입력 자료 완전 리셋
  * 2. 1회 입장 후 둘러보는 동안: 메뉴 간 이동 시 업로드 및 입력 데이터 유지
  * 3. 로그인 화면으로 복귀 시 or 다음에 다시 둘러보기 입장 시: 깨끗한 초기 상태로 리셋
- * 4. 브라우저 창/탭을 닫았을 때: sessionStorage 만료 및 창 종료 이벤트 감지로 이전 데이터 완전 삭제
- * 5. (2-C) 게스트는 서버에서도 게스트마다 별도 계정(서명 토큰)으로 분리되며, 위 리셋 시점에
+ * 4. 새로고침(F5): sessionStorage가 남아 있으므로 보던 화면과 자료를 그대로 유지
+ * 5. 브라우저 창/탭을 닫았을 때: sessionStorage가 사라지므로 다음 접속 시 이전 자료를 완전 삭제
+ *    (beforeunload는 새로고침과 창 닫기를 구분하지 못하므로 삭제 시점으로 쓰지 않는다)
+ * 6. (2-C) 게스트는 서버에서도 게스트마다 별도 계정(서명 토큰)으로 분리되며, 위 리셋 시점에
  *    게스트 토큰을 폐기하고 서버에 남은 게스트 세션·결과·감사로그 삭제를 요청한다.
  */
 import { discardGuestIdentity } from '../services/api.js';
@@ -100,6 +102,16 @@ export function startGuestSession() {
   clearGuestTaxData();
   sessionStorage.setItem(GUEST_SESSION_TOKEN, 'active');
   localStorage.setItem(GUEST_MODE_FLAG, 'true');
+}
+
+/**
+ * 이 탭에서 게스트 둘러보기가 진행 중임을 표시 (자료는 지우지 않음 — 새로고침 후 복원 판단용)
+ */
+export function markGuestSessionActive() {
+  try {
+    sessionStorage.setItem(GUEST_SESSION_TOKEN, 'active');
+    localStorage.setItem(GUEST_MODE_FLAG, 'true');
+  } catch { /* 저장소 사용 불가 시 새로고침 복원만 되지 않음 */ }
 }
 
 /**

@@ -5,10 +5,16 @@ import MainDashboard from './components/godash/MainDashboard';
 import DesignAlertModal from './components/DesignAlertModal';
 import BgmPlayer from './components/BgmPlayer';
 import {
-  startGuestSession,
-  clearGuestTaxData,
   checkAndResetExpiredGuestSession,
+  isGuestSessionActive,
+  markGuestSessionActive,
 } from './utils/guestStorage';
+
+// 새로고침(F5) 후에도 보던 화면을 유지하기 위한 키 (sessionStorage: 탭을 닫으면 사라짐)
+const SCREEN_STORAGE_KEY = 'selftax_current_screen';
+const readSavedScreen = () => {
+  try { return sessionStorage.getItem(SCREEN_STORAGE_KEY) || 'intro'; } catch { return 'intro'; }
+};
 import {
   saveUserData,
   loadUserData,
@@ -51,7 +57,8 @@ function PageLoadingFallback() {
  * - 비로그인(게스트) 데모 둘러보기 시:
  *   1) 1회 입장 후 둘러보는 동안: 메뉴 간 이동 시 업로드 및 입력 데이터 정상 유지
  *   2) 로그인 화면으로 복귀 시 or 다시 데모 입장 시: 이전 데이터 완전 리셋
- *   3) 브라우저 창/탭을 닫으면: 이전 업로드/입력 자료 완전 삭제(초기화)
+ *   3) 새로고침(F5)하면: 보던 화면과 입력 자료를 그대로 유지
+ *   4) 브라우저 창/탭을 닫으면: 다음 접속 시 이전 업로드/입력 자료 완전 삭제(초기화)
  */
 export default function App() {
   const { user, profile, signOut, loading: authLoading } = useAuth();
@@ -63,7 +70,8 @@ export default function App() {
     .trim() || '근로자';
 
   // 서비스에 처음 접속하면 인트로 랜딩페이지('intro')가 기본으로 노출됩니다.
-  const [currentScreen, setCurrentScreen] = useState('intro');
+  // 새로고침이면 이 탭에서 보던 화면을 복원합니다 (로그인·게스트 여부는 인증 확인 후 다시 판정).
+  const [currentScreen, setCurrentScreen] = useState(readSavedScreen);
 
   // 게스트(로그인 없이 둘러보기) 재입장 시 컴포넌트 내부 상태를 완전히 새로고침(리셋)하기 위한 세션 키
   const [guestSessionKey, setGuestSessionKey] = useState(() => Date.now());
@@ -96,17 +104,21 @@ export default function App() {
     if (authLoading) return;
     if (isLoggingOutRef.current) return;
     checkAndResetExpiredGuestSession(Boolean(user?.id));
+    // 로그인도 진행 중인 둘러보기도 아니면(창을 닫았다 다시 연 경우 등) 복원한 화면 대신 인트로로
+    if (!user?.id && !isGuestSessionActive()) setCurrentScreen('intro');
   }, [user?.id, authLoading]);
 
-  // 2) 브라우저 창/탭을 닫을 때(beforeunload): 게스트는 임시 자료 삭제, 로그인 사용자는 작성 내용을 저장
+  // 1-1) 보고 있는 화면을 탭 단위로 기억 (새로고침 시 복원)
+  useEffect(() => {
+    try { sessionStorage.setItem(SCREEN_STORAGE_KEY, currentScreen); } catch { /* ignore */ }
+  }, [currentScreen]);
+
+  // 2) 페이지를 떠날 때(beforeunload — 새로고침과 창 닫기 모두): 작성 내용을 저장만 합니다.
+  //    게스트 자료 삭제는 창이 닫혀 sessionStorage가 사라진 뒤 다음 접속 시(1번) 처리합니다.
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (isLoggingOutRef.current) return;
-      if (!user?.id) {
-        clearGuestTaxData();
-      } else {
-        saveUserData(user.id);
-      }
+      saveUserData(user?.id || 'guest');
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => {
@@ -326,6 +338,7 @@ export default function App() {
   // - 기존에 작성 중이던 세션 자료가 있으면 100% 복원하여 기존 작성 내용이 보여지게 유지
   const handleStartGuestDemo = () => {
     const effectiveId = user?.id || 'guest';
+    if (!user?.id) markGuestSessionActive();
     const restored = loadUserData(effectiveId);
     if (restored && restored.hasData) {
       setTaxProgress(restored.taxProgress || 1);
