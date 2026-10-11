@@ -6,6 +6,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 
+@pytest.fixture
+def client(client: TestClient):
+    """게스트 토큰을 받은 클라이언트 (익명 요청은 세션 API에서 401)"""
+    token = client.post("/api/v1/auth/guest").json()["guest_token"]
+    client.headers.update({"Authorization": f"Bearer {token}"})
+    return client
+
+
 def test_session_lifecycle(client: TestClient):
     """세션 생성 및 상태 조회 라이프사이클 테스트 (F-AUTH / F-SESSION)"""
     # 1. 신규 세션 생성

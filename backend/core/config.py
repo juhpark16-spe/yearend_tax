@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     SUPABASE_JWT_SECRET: str = ""     # 레거시 JWT 시크릿(HS256)
     SUPABASE_JWT_AUDIENCE: str = "authenticated"
 
+    # 게스트(로그인 없이 둘러보기) 세션 분리: 게스트 토큰 서명 키와 유효 시간
+    GUEST_TOKEN_SECRET: str = ""      # 미설정 시 SECRET_KEY 사용 (기본값이면 프로세스 임시 키)
+    GUEST_SESSION_TTL_HOURS: int = 24
+
     # AI & API Keys
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o"

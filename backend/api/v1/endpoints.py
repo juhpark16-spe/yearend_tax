@@ -34,6 +34,12 @@ from backend.schemas.tax_schema import (
     ValidationResponse,
 )
 from backend.schemas.explanation import ExplanationDTO, TaxExplanationRequest
+from backend.security.guest import (
+    delete_guest_data,
+    is_guest_user_key,
+    issue_guest_token,
+    purge_expired_guest_data,
+)
 from backend.security.auth import (
     get_current_user_id,
     verify_session_owner,
@@ -54,6 +60,29 @@ router = APIRouter(tags=["Tax"])
 # 1. Tax Session Endpoints
 # ============================================================================
 
+@router.post("/auth/guest", summary="게스트(로그인 없이 둘러보기) 전용 토큰 발급")
+def issue_guest(db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """게스트마다 고유 식별자와 서버 서명 토큰을 발급한다 (게스트끼리 세션·자료를 공유하지 않음).
+    발급할 때 만료된 게스트의 서버 자료를 함께 정리한다.
+    """
+    try:
+        purge_expired_guest_data(db)
+    except Exception:
+        db.rollback()
+    return issue_guest_token()
+
+
+@router.delete("/auth/guest", summary="현재 게스트의 서버 자료 즉시 삭제")
+def delete_guest(
+    current_user_id: Optional[str] = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """게스트가 둘러보기를 끝내거나 창을 닫을 때 서버에 남은 세션·문서·결과·감사로그를 지운다."""
+    if not current_user_id or not is_guest_user_key(current_user_id):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="게스트 토큰이 필요합니다.")
+    return {"deleted_sessions": delete_guest_data(db, current_user_id)}
+
+
 @router.post("/sessions", response_model=SessionResponse, summary="신규 연말정산 세션 생성")
 @router.post("/tax/sessions", response_model=SessionResponse, summary="신규 연말정산 세션 생성 (alias)")
 def create_session(
@@ -67,6 +96,12 @@ def create_session(
     # 세션 소유자는 인증 토큰 기준으로만 정한다 (요청 본문의 user_id는 개발 환경 하위 호환용)
     is_production = str(getattr(settings, "ENVIRONMENT", "")).lower() == "production"
     target_user_id = current_user_id or (None if is_production else request.user_id)
+    if not target_user_id:
+        # 게스트도 /auth/guest 로 고유 토큰을 받아야 하며, 공용 기본 사용자로 세션을 만들지 않는다
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="로그인하거나 '로그인 없이 둘러보기'로 시작해 주세요.",
+        )
     session = svc.create_session(
         user_id=target_user_id,
         tax_year=request.tax_year,
@@ -168,6 +203,11 @@ async def upload_documents(
     """
     session_svc = TaxSessionService(db)
     if not session_id:
+        if not current_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="로그인하거나 '로그인 없이 둘러보기'로 시작해 주세요.",
+            )
         new_session = session_svc.create_session(user_id=current_user_id)
         target_session_id = str(new_session.id)
     else:

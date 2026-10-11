@@ -17,6 +17,7 @@ import {
   checkHasWithholdingData,
   removeUserTaxDataKey,
 } from './utils/userTaxStorage';
+import { discardGuestIdentity, GUEST_TOKEN_STORAGE_KEY } from './services/api';
 
 // 코드 분할 (Code Splitting): 페이지별 지연 로딩을 통한 초기 번들 크기 및 로딩 속도 최적화
 const FamilyPage = lazy(() => import('./pages/FamilyPage'));
@@ -129,6 +130,13 @@ export default function App() {
     if (authLoading) return;
     if (isLoggingOutRef.current) return;
     const effectiveId = user?.id || 'guest';
+    // 게스트로 둘러보다 로그인하면 게스트 토큰과 서버의 게스트 자료를 폐기 (게스트 세션 분리)
+    if (user?.id) {
+      try {
+        if (localStorage.getItem(GUEST_TOKEN_STORAGE_KEY)) discardGuestIdentity();
+      } catch { /* ignore */ }
+    }
+    // loadUserData는 계정이 바뀌었으면 이전 계정의 활성 자료를 비운다 (claimActiveWorkspace)
     const restored = loadUserData(effectiveId);
     if (restored && restored.hasData) {
       setTaxProgress(restored.taxProgress || 1);
@@ -197,6 +205,9 @@ export default function App() {
       } else {
         menus.delete('hometax');
       }
+      // 화면 상태도 현재 계정의 저장소 기준으로 맞춤 (이전 계정의 PDF 추출·AI 리포트가 남지 않도록)
+      setHometaxExtractedData(parsedLocalHometax);
+      if (!localStorage.getItem('selftax_ai_report_data')) setAiReportData(null);
 
       // 공제자료 입력 메뉴 동기화
       if (checkHasInputData(effectiveId)) {

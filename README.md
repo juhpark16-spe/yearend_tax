@@ -110,6 +110,7 @@ yearend_tax/
 │   │   └── nts_sections.py     # 간소화 보장성보험·교육비 섹션 구조 파서 (이름 무관 판정)
 │   ├── security/               # 인증/인가 및 개인정보 보호
 │   │   ├── auth.py             # Supabase JWT 서명·만료 검증 및 IDOR 방어 가드
+│   │   ├── guest.py            # 게스트 전용 서명 토큰 발급·검증, 게스트 자료 삭제·만료 정리
 │   │   └── pii_mask.py         # 주민등록번호·주소·전화번호 마스킹 (업로드 직후 인메모리)
 │   ├── services/               # 비즈니스 로직 서비스 계층
 │   │   ├── tax_calculation_service.py # 세액 계산 통합 서비스
@@ -210,6 +211,7 @@ yearend_tax/
 │   │   ├── test_upload_validation.py   # 파일 업로드 유효성 테스트
 │   │   ├── test_nts_sections.py        # 간소화 섹션 파서 (가족 이름을 바꿔도 같은 결과)
 │   │   ├── test_jwt_verification.py    # JWT 위조·만료·데모토큰·IDOR 차단 테스트
+│   │   ├── test_guest_session.py       # 게스트 간 세션 분리·위조/만료 토큰·게스트 자료 삭제 테스트
 │   │   ├── test_tax_engine_fixes.py    # 자녀 8세·교육비 인별 한도·표준세액공제·차감 0원 테스트
 │   │   └── test_session_inputs.py      # 화면 입력 저장 → 계산 → 감사 로그 교차검증 연동 테스트
 │   ├── integration/            # 통합 테스트
@@ -231,6 +233,7 @@ yearend_tax/
 * **Zero-Plaintext RRN 원칙**: 업로드 직후 인메모리에서 주민등록번호 뒷자리를 마스킹(서버 `900101-[RRN Omitted]`, 브라우저 `900101-1******`)하며, DB 및 브라우저 스토리지 어디에도 원본 주민등록번호를 평문으로 보관하지 않습니다.
 * **수식 연산 결정론화 (Zero-Hallucination)**: 세액 계산 자체에는 LLM을 일절 사용하지 않아 AI의 수식 왜곡 및 할루시네이션 위험을 원천 차단합니다.
 * **JWT 서명 검증 & IDOR(BOLA) 방어**: `SUPABASE_URL`(JWKS) 또는 `SUPABASE_JWT_SECRET`으로 토큰 서명·만료·aud를 검증하고, 세션·문서마다 소유자를 대조합니다. 운영 모드(`ENVIRONMENT=production`)에서는 `X-User-Id`·데모 토큰을 무시하며, 검증 설정이 없으면 모든 토큰을 거부합니다.
+* **게스트 세션 분리**: '로그인 없이 둘러보기' 사용자는 `POST /api/v1/auth/guest`로 서버가 서명한 게스트 전용 토큰(HMAC-SHA256, 기본 24시간)을 받아 요청합니다. 게스트마다 서버 계정이 따로 생겨 다른 게스트의 세션·결과·감사로그에 접근할 수 없고(403), 토큰 없는 요청은 세션 API에서 401로 거부됩니다(공용 기본 사용자 세션 제거). 둘러보기를 끝내거나 창을 닫으면 `DELETE /api/v1/auth/guest`로 서버 자료를 지우고, 남은 만료 게스트 자료는 새 게스트 발급 시 정리합니다. 브라우저에서는 활성 작업 공간의 주인(`selftax_active_owner`)을 기록해 게스트↔로그인 사용자, 사용자 A↔B 전환 시 이전 사람의 자료를 비우고 남의 자료를 내 계정 번들에 저장하지 않습니다. 운영 배포 시 `.env`에 `GUEST_TOKEN_SECRET`(또는 `SECRET_KEY`)를 설정하세요(미설정 시 서버 재시작마다 게스트 토큰이 무효).
 * **클라이언트 PII 재귀 살균**: `deepSanitizeSensitiveData`를 통해 브라우저 로컬 저장소 저장 직전 모든 객체 트리의 주민번호 및 식별번호를 자동 마스킹합니다.
 * **안전한 HTTP 보안 헤더 탑재**: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin` 적용.
 

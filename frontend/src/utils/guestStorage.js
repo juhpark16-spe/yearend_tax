@@ -6,7 +6,10 @@
  * 2. 1회 입장 후 둘러보는 동안: 메뉴 간 이동 시 업로드 및 입력 데이터 유지
  * 3. 로그인 화면으로 복귀 시 or 다음에 다시 둘러보기 입장 시: 깨끗한 초기 상태로 리셋
  * 4. 브라우저 창/탭을 닫았을 때: sessionStorage 만료 및 창 종료 이벤트 감지로 이전 데이터 완전 삭제
+ * 5. (2-C) 게스트는 서버에서도 게스트마다 별도 계정(서명 토큰)으로 분리되며, 위 리셋 시점에
+ *    게스트 토큰을 폐기하고 서버에 남은 게스트 세션·결과·감사로그 삭제를 요청한다.
  */
+import { discardGuestIdentity } from '../services/api.js';
 
 export const GUEST_TAX_STORAGE_KEYS = [
   'hometax_extracted_data',
@@ -30,6 +33,11 @@ export const GUEST_TAX_STORAGE_KEYS = [
   'selftax_other_housing_loan',
   'selftax_other_housing_savings',
   'selftax_other_rent',
+  'selftax_ai_report_data',
+  'selftax_donation_carryover',
+  'selftax_edu_review_included',
+  'selftax_server_session_id',
+  'selftax_active_owner',
 ];
 
 export const GUEST_SESSION_TOKEN = 'selftax_guest_active_session';
@@ -40,6 +48,8 @@ export const GUEST_MODE_FLAG = 'selftax_is_guest_mode';
  */
 export function clearGuestTaxData() {
   try {
+    // 서버 측 게스트 자료 삭제 요청 + 게스트 토큰 폐기 (다음 둘러보기는 새 게스트로 시작)
+    discardGuestIdentity();
     GUEST_TAX_STORAGE_KEYS.forEach((key) => {
       localStorage.removeItem(key);
       sessionStorage.removeItem(key);

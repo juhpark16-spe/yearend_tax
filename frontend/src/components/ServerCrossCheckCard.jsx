@@ -63,7 +63,11 @@ export default function ServerCrossCheckCard({ jsResult, userName = '' }) {
       setLogs(auditLogs);
       setState('done');
     } catch (e) {
-      setError('백엔드 서버에 연결하지 못했습니다. 서버(uvicorn)가 실행 중인지 확인해 주세요.');
+      setError(
+        e?.response?.status === 401
+          ? '인증이 만료되었습니다. 다시 로그인하거나 둘러보기를 새로 시작해 주세요.'
+          : '백엔드 서버에 연결하지 못했습니다. 서버(uvicorn)가 실행 중인지 확인해 주세요.'
+      );
       setState('error');
     }
   };

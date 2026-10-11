@@ -18,6 +18,7 @@ from backend.core.database import get_db
 from backend.models.session import TaxSession
 from backend.models.user import User
 from backend.services.tax_session_service import TaxSessionService
+from backend.security.guest import is_guest_token, verify_guest_token
 
 
 def resolve_user_id(user_id_str: Optional[str]) -> Optional[uuid.UUID]:
@@ -124,6 +125,10 @@ def extract_sub_from_jwt(token: str) -> Optional[str]:
     if not clean_token:
         return None
 
+    if is_guest_token(clean_token):
+        # 서버가 서명한 게스트 토큰: 게스트마다 별도 사용자로 취급 (운영 환경에서도 허용)
+        return verify_guest_token(clean_token)
+
     if clean_token.startswith("demo-token-"):
         if _is_production():
             raise _unauthorized("운영 환경에서는 데모 토큰을 사용할 수 없습니다.")
@@ -179,9 +184,13 @@ def verify_session_owner_manual(
     db: Session,
 ) -> TaxSession:
     """세션 소유자 검증 핵심 로직:
+    - 요청자 식별 정보(로그인 토큰 또는 게스트 토큰)가 없으면 401 Unauthorized
     - 세션이 존재하지 않으면 404 Not Found
     - 요청자와 세션 소유자가 불일치하면 403 Forbidden
+    (게스트도 게스트마다 고유 토큰을 받으므로 '익명이면 공용 데모 세션 허용' 경로는 두지 않는다)
     """
+    if not current_user_id:
+        raise _unauthorized("로그인하거나 '로그인 없이 둘러보기'로 시작해 주세요.")
     session_svc = TaxSessionService(db)
     session = session_svc.get_session(session_id)
     if not session:
@@ -190,27 +199,21 @@ def verify_session_owner_manual(
             detail=f"세션을 찾을 수 없습니다: {session_id}",
         )
 
-    # 기본 데모 사용자 식별
-    default_user = session_svc.get_or_create_default_user()
-    is_default_session = (session.user_id == default_user.id)
-
-    if current_user_id:
-        requester_uuid = resolve_user_id(current_user_id)
-        if session.user_id != requester_uuid:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="접근 권한이 없습니다. 해당 세션의 소유자가 아닙니다.",
-            )
-    else:
-        # 인증 헤더 없이 접근한 경우:
-        # 데모 세션인 경우에만 허용하고, 특정 사용자 소유 세션인 경우 차단
-        if not is_default_session:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="접근 권한이 없습니다. 해당 세션의 소유자가 아닙니다.",
-            )
+    requester_uuid = resolve_user_id(current_user_id)
+    if session.user_id != requester_uuid:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="접근 권한이 없습니다. 해당 세션의 소유자가 아닙니다.",
+        )
 
     return session
+
+
+def require_user_id(current_user_id: Optional[str] = Depends(get_current_user_id)) -> str:
+    """식별된 요청자(로그인 사용자 또는 게스트)만 통과시키는 가드"""
+    if not current_user_id:
+        raise _unauthorized("로그인하거나 '로그인 없이 둘러보기'로 시작해 주세요.")
+    return current_user_id
 
 
 def verify_session_owner(

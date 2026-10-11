@@ -2,7 +2,7 @@
 - user_id / Supabase Auth UID 대조
 - 본인 세션 접근 (200 OK)
 - 타인 세션 접근 차단 (403 Forbidden)
-- 비로그인 사용자의 보호 세션 접근 차단 (403 Forbidden)
+- 토큰 없는(익명) 요청의 세션 접근 차단 (401 Unauthorized)
 - 존재하지 않는 세션 접근 (404 Not Found)
 """
 import base64
@@ -135,7 +135,7 @@ def test_session_owner_forbidden_for_other_user(client: TestClient):
 
 
 def test_session_owner_forbidden_for_anonymous_user(client: TestClient):
-    """로그인 사용자 세션에 비인증(헤더 없음) 접근 시 403 Forbidden 차단 검증"""
+    """로그인 사용자 세션에 비인증(헤더 없음) 접근 시 401 차단 검증"""
     user_a_id = str(uuid.uuid4())
 
     create_res = client.post(
@@ -148,8 +148,7 @@ def test_session_owner_forbidden_for_anonymous_user(client: TestClient):
 
     # 헤더 없이 조회 -> 403 Forbidden
     anon_res = client.get(f"/api/v1/sessions/{session_id}")
-    assert anon_res.status_code == 403
-    assert "접근 권한이 없습니다" in anon_res.json()["detail"]
+    assert anon_res.status_code == 401
 
 
 def test_session_not_found(client: TestClient):
@@ -163,18 +162,10 @@ def test_session_not_found(client: TestClient):
     assert "세션을 찾을 수 없습니다" in res.json()["detail"]
 
 
-def test_demo_user_compatibility(client: TestClient):
-    """비로그인 데모 사용자의 세션 생성 및 조회 하위 호환성 검증"""
-    # 비로그인(헤더 없음) 세션 생성
+def test_anonymous_cannot_create_shared_demo_session(client: TestClient):
+    """토큰 없는 요청은 공용 데모 사용자로 세션을 만들지 못하고 401 (게스트는 /auth/guest 토큰 사용)"""
     create_res = client.post("/api/v1/sessions", json={"tax_year": 2025})
-    assert create_res.status_code == 200
-    session_id = create_res.json()["session_id"]
-
-    # 비로그인 세션 조회 허용 (200 OK)
-    get_res = client.get(f"/api/v1/sessions/{session_id}")
-    assert get_res.status_code == 200
-    assert get_res.json()["session_id"] == session_id
-
+    assert create_res.status_code == 401
 
 def test_security_headers_middleware(client: TestClient):
     """보안 응답 헤더 미들웨어(X-Content-Type-Options, X-Frame-Options, Referrer-Policy) 검증"""

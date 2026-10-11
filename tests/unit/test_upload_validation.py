@@ -4,6 +4,8 @@ from fastapi.testclient import TestClient
 from backend.main import app
 
 client = TestClient(app)
+# 업로드는 로그인 사용자 또는 게스트 토큰이 있어야 한다 (2-C 게스트 세션 분리)
+client.headers.update({"Authorization": "Bearer " + client.post("/api/v1/auth/guest").json()["guest_token"]})
 
 def test_upload_non_pdf_fails():
     """확장자가 PDF가 아니거나 Content-Type이 application/pdf가 아닐 때 400 에러 및 메시지 검증"""

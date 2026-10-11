@@ -30,11 +30,15 @@ class TaxSessionService:
 
             user = self.db.query(User).filter(User.id == uid).first()
             if not user:
-                email = str(user_id) if "@" in str(user_id) else f"{str(user_id)[:16]}@auth.selftax"
+                is_guest = str(user_id).startswith("guest-")
+                if is_guest:
+                    email = f"{user_id}@guest.selftax"
+                else:
+                    email = str(user_id) if "@" in str(user_id) else f"{str(user_id)[:16]}@auth.selftax"
                 user = User(
                     id=uid,
                     email=email,
-                    name=f"사용자({str(user_id)[:8]})",
+                    name="게스트" if is_guest else f"사용자({str(user_id)[:8]})",
                     created_at=datetime.now(timezone.utc),
                     updated_at=datetime.now(timezone.utc)
                 )

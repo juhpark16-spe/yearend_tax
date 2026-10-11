@@ -34,7 +34,29 @@ export const PERSISTENT_TAX_KEYS = [
   'selftax_other_housing_savings',
   'selftax_other_rent',
   'selftax_ai_report_data',
+  'selftax_donation_carryover',
+  'selftax_edu_review_included',
+  'selftax_server_session_id',
 ];
+
+// 현재 화면(활성 작업 공간)에 올라와 있는 자료의 주인 (로그인 사용자 ID 또는 'guest')
+// 계정이 바뀌면 이전 주인의 활성 자료를 비우고, 다른 사람의 활성 자료를 내 번들에 저장하지 않는다.
+export const ACTIVE_OWNER_KEY = 'selftax_active_owner';
+
+export function getActiveOwner() {
+  try { return localStorage.getItem(ACTIVE_OWNER_KEY); } catch { return null; }
+}
+
+export function claimActiveWorkspace(userId) {
+  const id = String(userId || 'guest');
+  try {
+    const owner = localStorage.getItem(ACTIVE_OWNER_KEY);
+    if (owner && owner !== id) clearActiveTaxData();
+    localStorage.setItem(ACTIVE_OWNER_KEY, id);
+  } catch {
+    /* 저장소 접근 불가 시 무시 */
+  }
+}
 
 // 각 페이지가 setSecureItem(암호화)으로 저장하는 키 목록 (그 외는 평문 localStorage 형식 유지)
 // ※ selftax_deduction_data 등은 DataInputPage가 평문 JSON으로 읽으므로 반드시 평문으로 복원해야 함
@@ -251,6 +273,9 @@ export function checkHasWithholdingData(userId) {
  */
 export function saveUserData(userId, extraData = {}) {
   const effectiveId = userId || 'guest';
+  // 활성 자료의 주인이 다른 계정이면 저장하지 않음 (계정 전환 직후 다른 사람 자료가 섞이는 것 방지)
+  const owner = getActiveOwner();
+  if (owner && owner !== String(effectiveId)) return false;
   try {
     const bundleKey = getUserBundleKey(effectiveId);
     if (!bundleKey) return false;
@@ -390,6 +415,8 @@ export function saveUserData(userId, extraData = {}) {
  */
 export function loadUserData(userId) {
   const effectiveId = userId || 'guest';
+  // 계정이 바뀌었으면 이전 계정의 활성 자료를 먼저 비우고 주인을 현재 계정으로 기록
+  claimActiveWorkspace(effectiveId);
   try {
     const bundleKey = getUserBundleKey(effectiveId);
     if (!bundleKey) return null;

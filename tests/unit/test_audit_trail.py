@@ -268,6 +268,7 @@ def test_8_audit_log_idempotent_recalculation(db_session, test_user_session):
 # 9. Audit 조회 API 정상 응답
 # -----------------------------------------------------------------------------
 def test_9_audit_api_endpoint_response(client: TestClient):
+    client.headers.update({"Authorization": "Bearer " + client.post("/api/v1/auth/guest").json()["guest_token"]})
     # 1. 세션 생성
     s_res = client.post("/api/v1/sessions", json={"tax_year": 2025, "is_newly_married": True})
     assert s_res.status_code == 200
