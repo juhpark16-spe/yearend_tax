@@ -806,7 +806,7 @@ export default function HousingSavingsSection({
                   })();
 
                   if (hasHometaxPdf) {
-                    const cleanWorkerName = (workerName || '고길동').replace(/\(.*?\)/g, '').trim();
+                    const cleanWorkerName = (workerName || '본인').replace(/\(.*?\)/g, '').trim();
                     const defaultNtsHousingSavings = [
                       {
                         id: 'nts_hsavings_1',

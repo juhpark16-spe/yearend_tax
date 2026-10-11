@@ -899,7 +899,7 @@ export default function HousingLoanSection({
                   })();
 
                   if (hasHometaxPdf) {
-                    const cleanWorkerName = (workerName || '고길동').replace(/\(.*?\)/g, '').trim();
+                    const cleanWorkerName = (workerName || '본인').replace(/\(.*?\)/g, '').trim();
                     const defaultNtsHousingLoan = [
                       // 주택임차차입금 (전세대출 원리금상환액) 3건
                       {

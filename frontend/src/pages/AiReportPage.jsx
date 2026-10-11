@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import HomeButton from '../components/HomeButton';
 import { calculateSettlementTax } from '../utils/taxCalculator';
 import { getSecureItem } from '../utils/secureStorage';
+import { failsAgeRequirement } from '../utils/eligibility';
 
 /**
  * AI 연말정산 결과 리포트 화면
@@ -646,14 +647,12 @@ export default function AiReportPage({
 
                             const isIncomeOver = Boolean(
                               member.incomeOver === '초과함' ||
-                              member.incomeExcess ||
-                              cleanMName === '홍부인' ||
-                              cleanMName === '고부친'
+                              member.incomeExcess
                             );
 
                             const isAgeDisqualified = Boolean(
                               !isDisabled && (
-                                cleanMName.includes('고영수') || cleanMName.includes('영수') ||
+                                failsAgeRequirement(member) ||
                                 (isChild && bYear !== null && bYear < 2005)
                               )
                             );

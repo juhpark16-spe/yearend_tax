@@ -12,6 +12,7 @@ import LongInvestSection, { calculateLongInvestDeductible } from '../components/
 import OtherDeductSection from '../components/tax_sections/OtherDeductSection';
 import { getSecureItem, setSecureItem, maskLandlordId, maskRrn } from '../utils/secureStorage';
 import { calculateEarnedIncomeDeduction } from '../utils/taxCalculator';
+import { shouldExcludeBasicDeduction } from '../utils/eligibility';
 
 /**
  * [Step 3] 공제자료 입력 & 의료비 관리 화면
@@ -879,30 +880,32 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
     });
 
     // 2. 보장성보험료 자동 적용 (보장성 -> 일반보장성보험, 장애인보장 -> 장애인전용보장성보험)
-    // 계약자 성명 기준으로 납입금액 적용: 장애인전용보장성보험(스마트가정보장보험)의 계약자는 고길동이므로 고길동에만 적용하고 고둘리에서는 삭제
+    // 계약자 명의로만 납입금액을 귀속하고, 주피보험자·종피보험자 중 기본공제대상자가 있는 계약만 반영한다.
     setInsuranceItems((prev) => {
-      const others = prev.filter((item) =>
-        !item.isNts && !(item.name === '고둘리' && (item.type?.includes('장애인') || item.company?.includes('스마트')))
-      );
+      const others = prev.filter((item) => !item.isNts);
       if (Array.isArray(persons) && persons.length > 0) {
         const newNts = [];
+        const findMember = (n) => {
+          const c = String(n || '').replace(/\(.*?\)/g, '').trim();
+          return familyMembers.find((m) => (m.name || '').replace(/\(.*?\)/g, '').trim() === c);
+        };
+        const ntsIncomeExcess = new Set(
+          persons.filter((pp) => pp.income_excess).map((pp) => String(pp.name || '').replace(/\(.*?\)/g, '').trim())
+        );
+        const isNotBasicTarget = (n) => {
+          const c = String(n || '').replace(/\(.*?\)/g, '').trim();
+          const m = findMember(c);
+          return ntsIncomeExcess.has(c) || Boolean(m?.incomeExcess || m?.incomeOver === '초과함' || m?.basicDeduction === '해당없음');
+        };
         persons.forEach((p, idx) => {
           const rawName = p.name || loggedInWorkerName || '본인';
           const pName = rawName.replace(/\(.*?\)/g, '').trim();
           const pRel = p.relation || '본인';
+          const member = findMember(pName);
+          const isSelfContractor = pRel === '본인' || member?.isSelf || member?.relation === '본인';
 
-          // 기본공제대상자 및 소득초과 부양가족 여부 확인
-          const member = familyMembers.find((m) => (m.name || '').replace(/\(.*?\)/g, '').trim() === pName);
-          const isIncomeExcess = Boolean(
-            p.income_excess ||
-            member?.incomeExcess ||
-            member?.basicDeduction === '해당없음' ||
-            pName === '홍부인' ||
-            pName === '고부친'
-          );
-
-          // 계약자가 기본공제대상자가 아니면 납입금액에 적용하지 않음
-          if (isIncomeExcess) return;
+          // 계약자가 기본공제대상자가 아니면 납입금액에 적용하지 않음 (본인은 항상 대상)
+          if (!isSelfContractor && isNotBasicTarget(pName)) return;
 
           const insDetails = Array.isArray(p.insurance_details) && p.insurance_details.length > 0
             ? p.insurance_details
@@ -914,28 +917,25 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
               if (d.contractor && d.contractor.replace(/\(.*?\)/g, '').trim() !== pName) {
                 return;
               }
-              // 계약자 성명 기준: 스마트가정보장보험(장애인전용보장성보험)은 계약자가 고길동이므로 고둘리에 적용된 항목은 제외
-              if (pName === '고둘리' && (String(d.policy_name || '').includes('스마트') || String(d.type || d.raw_type || '').includes('장애인'))) {
-                return;
-              }
-              // 주피보험자 또는 종피보험자(수익자)에 기본공제대상자가 있는지 확인
+              // 주피보험자 또는 종피보험자(수익자) 중 기본공제대상자가 1명 이상 있어야 공제 대상
               const mInsured = (d.main_insured || pName).replace(/\(.*?\)/g, '').trim();
               const subInsureds = Array.isArray(d.sub_insured) ? d.sub_insured : [];
-              const hasGildongDooli = (pName === '고길동' && (subInsureds.includes('고둘리') || String(d.policy_name || '').includes('스마트')));
+              const insuredList = [mInsured, ...subInsureds];
+              const hasEligibleInsured = insuredList.some((n) => {
+                const c = String(n || '').replace(/\(.*?\)/g, '').trim();
+                return c === pName ? (isSelfContractor || !isNotBasicTarget(c)) : !isNotBasicTarget(c);
+              });
+              if (!hasEligibleInsured) return;
 
-              if ((mInsured === '홍부인' || mInsured === '고부친') && !hasGildongDooli) {
-                return;
-              }
-
-              const rawKind = d.raw_type || d.type || d.종류 || '보장성';
-              const isDis = pName === '고길동' && (rawKind.includes('장애인') || hasGildongDooli || subInsureds.includes('고둘리'));
-              const mappedType = isDis ? '장애인전용보장성보험' : '일반보장성보험';
+              const rawKind = String(d.type || d.raw_type || d.종류 || '보장성');
+              const mappedType = rawKind.includes('장애인') ? '장애인전용보장성보험' : '일반보장성보험';
               newNts.push({
                 id: `nts_ins_${pName}_${dIdx}_${idx}`,
                 name: pName,
                 relation: pRel,
                 type: mappedType,
                 company: d.company || d.org_name || d.상호 || '보장성보험',
+                policyName: d.policy_name || '',
                 bizNumber: d.biz_number || '',
                 amount: Number(d.amount || 0),
                 isNts: true,
@@ -953,24 +953,6 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
                 company: `국세청 간소화 (${pName})`,
                 bizNumber: '',
                 amount: amt,
-                isNts: true,
-                source: 'nts',
-              });
-            }
-          }
-
-          // 고길동 계약자: 종피보험자2(수익자)에 고둘리(장애인)가 포함된 장애인보장성보험 (1,962,000원) 자동 보장
-          if (pName === '고길동') {
-            const hasSmart = newNts.some((item) => item.company?.includes('AIA') || item.bizNumber === '104-91-36225' || item.amount === 1962000);
-            if (!hasSmart) {
-              newNts.push({
-                id: `nts_ins_gildong_smart_${idx}`,
-                name: '고길동',
-                relation: pRel,
-                type: '장애인전용보장성보험',
-                company: 'AIA생명보험 (스마트가정보장보험1701)',
-                bizNumber: '104-91-36225',
-                amount: 1962000,
                 isNts: true,
                 source: 'nts',
               });
@@ -1469,8 +1451,7 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
             p.isSelf ||
             pRel === '본인' ||
             pName === (loggedInWorkerName || '').replace(/\(.*?\)/g, '').trim() ||
-            pName === '본인' ||
-            pName === '고길동';
+            pName === '본인';
 
           // 부양가족 매칭 정보 확인 (부양가족 페이지에 등록된 대상자)
           const matchedFam = familyMembers.find(
@@ -1493,15 +1474,12 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
           const isFamDisabled = Boolean(
             (matchedFam?.isDisabled ||
               (matchedFam?.disabledDeduction && matchedFam?.disabledDeduction !== '해당없음') ||
-              p.isDisabled) &&
-            !pName.includes('고둘리') && !pName.includes('둘리')
+              p.isDisabled)
           );
           const isIncomeExcess = Boolean(
             p.income_excess ||
             matchedFam?.incomeExcess ||
-            matchedFam?.incomeOver === '초과함' ||
-            pName === '홍부인' ||
-            pName === '고부친'
+            matchedFam?.incomeOver === '초과함'
           );
 
           // 본인 외 부양가족이 소득요건을 초과하고 장애인특수교육비가 아니면 제외
@@ -1527,50 +1505,20 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
             calculatedAge = 2025 - year;
           }
 
+          const KNOWN_EDU_CATS = ['본인', '대학생', '취학전아동', '초·중·고등학생', '초.중.고등학생(현장학습비)', '중.고등학생(교복구입비)', '장애인특수교육'];
+          // 교육비 분류: 국세청 서식의 교육비구분을 반영한 백엔드 분류를 우선하고, 없을 때만 문구·나이로 추정
           const normalizeEduCat = (cat, edItem = {}) => {
-            const combined = `${cat || ''} ${edItem.category || ''} ${edItem.type || ''} ${edItem.school || ''} ${pRel}`.trim();
-            const amt = Number(edItem.raw_amount || edItem.amount || 0);
-
-            // 1. 고길동 (근로자 본인은 대학교/대학원 등 교육비 종류와 무관하게 전액 공제 '본인'으로 분류)
-            if (isSelfPerson || pName === '고길동') {
+            if (isSelfPerson) {
               return '본인';
             }
-
-            // 고둘리: 연말정산 PDF의 구분에 일반교육비이므로 취학전아동으로 분류 (연 300만원 한도 적용)
-            if (pName.includes('고둘리') || pName.includes('둘리')) {
-              return '취학전아동';
+            const given = String(edItem.category || cat || '').trim();
+            if (KNOWN_EDU_CATS.includes(given) && given !== '본인') {
+              return given;
             }
-
-            // 2. 부양가족 정보의 장애인공제를 받는 부양가족: 장애인특수교육비로 분류하여 전액 공제
-            if (isFamDisabled) {
+            const combined = `${cat || ''} ${edItem.category || ''} ${edItem.type || ''} ${edItem.edu_type || ''} ${edItem.school || ''}`.trim();
+            if (combined.includes('사회복지시설') || combined.includes('발달재활') || combined.includes('특수교육')) {
               return '장애인특수교육';
             }
-
-            // 3. 고철수
-            if (pName.includes('고철수') || pName.includes('철수')) {
-              if (combined.includes('현장체험') || combined.includes('현장학습') || combined.includes('체험학습') || amt === 153480) {
-                return '초.중.고등학생(현장학습비)';
-              }
-              if (combined.includes('수능') || combined.includes('입학전형') || combined.includes('응시료') || amt === 102000) {
-                return '대학생';
-              }
-              if (combined.includes('고등') || combined.includes('초') || combined.includes('중')) {
-                return '초·중·고등학생';
-              }
-              return '초·중·고등학생';
-            }
-
-            // 4. 고영수: 교육비구분에 전문대학으로 표기된 부분의 지출금액계 작성 -> 대학생
-            if (pName.includes('고영수') || pName.includes('영수')) {
-              return '대학생';
-            }
-
-            // 5. 고우너: 교육비구분에 교복구입비로 표기 -> 중.고등학생(교복구입비)
-            if (pName.includes('고우너') || pName.includes('우너')) {
-              return '중.고등학생(교복구입비)';
-            }
-
-            // 6. 일반 항목 규칙
             if (combined.includes('교복')) {
               return '중.고등학생(교복구입비)';
             }
@@ -1589,68 +1537,36 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
             if (combined.includes('고등') || combined.includes('중학') || combined.includes('초등') || combined.includes('초중고')) {
               return '초·중·고등학생';
             }
-            if (combined.includes('특수') || combined.includes('장애')) {
-              return '장애인특수교육';
-            }
             if (calculatedAge !== null) {
-              if (calculatedAge >= 7 && calculatedAge <= 18) {
-                return '초·중·고등학생';
-              }
               if (calculatedAge < 7) {
                 return '취학전아동';
               }
-              if (calculatedAge >= 19) {
-                return '대학생';
+              if (calculatedAge <= 18) {
+                return '초·중·고등학생';
               }
+              return '대학생';
             }
-
             return '초·중·고등학생';
           };
 
-          const isGoYoungSu = pName.includes('고영수') || pName.includes('영수');
-
           if (Array.isArray(p.education_details) && p.education_details.length > 0) {
-            let pEduDetails = [...p.education_details];
-            // 고철수의 교육비 중 고등학교 일반교육비 55,300원이 누락된 경우 보완
-            if ((pName.includes('고철수') || pName.includes('철수')) && !pEduDetails.some((ed) => Number(ed.raw_amount || ed.amount) === 55300)) {
-              pEduDetails.unshift({
-                name: pName,
-                school: '밀알학교',
-                category: '초·중·고등학생',
-                raw_amount: 55300,
-                amount: 55300,
-                limit: 3000000,
-              });
-            }
-
-            // 고영수의 교육비: 1) 전문대학(대학교) 6,821,600원, 2) 수능응시료/대학입학전형료 132,000원 보장
-            if (isGoYoungSu) {
-              pEduDetails = [
-                {
-                  name: pName,
-                  school: '경민대학교',
-                  category: '대학생',
-                  raw_amount: 6821600,
-                  amount: 6821600,
-                  limit: 9000000,
-                },
-                {
-                  name: pName,
-                  school: '한국교육평가원/대학',
-                  category: '대학생',
-                  raw_amount: 132000,
-                  amount: 132000,
-                  limit: 9000000,
-                },
-              ];
-            }
+            const pEduDetails = [...p.education_details];
 
             pEduDetails.forEach((ed, eIdx) => {
-              let amt = Number(ed.raw_amount || ed.amount || 0);
-              if (isGoYoungSu && amt === 10261600) {
-                amt = 6821600;
-              }
+              const rawAmt = Number(ed.raw_amount || ed.amount || 0);
               const normCat = normalizeEduCat(ed.category, ed);
+              // 검토 필요 항목: 장애인 특수교육비는 부양가족 단계에서 장애인으로 등록되면 자동 포함,
+              // 학령·나이 불일치 등은 사용자가 '포함하기'를 눌러야 반영
+              const eduItemId = `nts_edu_${pName}_${eIdx}_${idx}`;
+              let userIncluded = false;
+              try {
+                userIncluded = JSON.parse(localStorage.getItem('selftax_edu_review_included') || '[]').includes(eduItemId);
+              } catch {
+                userIncluded = false;
+              }
+              const reviewResolved = userIncluded || (normCat === '장애인특수교육' && (isFamDisabled || isSelfPerson));
+              const needsReview = Boolean(ed.needs_review) && !reviewResolved;
+              const amt = needsReview ? 0 : rawAmt;
 
               // 세법 요건: 직계존속의 교육비는 장애인 특수교육비만 공제 가능 (일반 교육비 제외)
               if (isAscendant && normCat !== '장애인특수교육') return;
@@ -1661,37 +1577,22 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
               }
 
               newNts.push({
-                id: `nts_edu_${pName}_${eIdx}_${idx}`,
+                id: eduItemId,
                 name: pName,
                 category: normCat,
+                school: ed.school || '',
                 amount: amt,
+                rawAmount: rawAmt,
+                needsReview,
+                reviewReason: needsReview ? (ed.review_reason || '확인이 필요한 교육비입니다') : '',
                 specialAmount: 0,
                 isNts: true,
                 source: 'nts',
               });
             });
           } else {
-            let rawAmt = Number(p.items?.education_child) || 0;
-            if (isGoYoungSu) {
-              newNts.push({
-                id: `nts_edu_${pName}_0_${idx}`,
-                name: pName,
-                category: '대학생',
-                amount: 6821600,
-                specialAmount: 0,
-                isNts: true,
-                source: 'nts',
-              });
-              newNts.push({
-                id: `nts_edu_${pName}_1_${idx}`,
-                name: pName,
-                category: '대학생',
-                amount: 132000,
-                specialAmount: 0,
-                isNts: true,
-                source: 'nts',
-              });
-            } else if (rawAmt > 0) {
+            const rawAmt = Number(p.items?.education_child) || 0;
+            if (rawAmt > 0) {
               const normCat = normalizeEduCat('', {});
               // 세법 요건: 직계존속의 교육비는 장애인 특수교육비만 공제 가능 (일반 교육비 제외)
               if (isAscendant && normCat !== '장애인특수교육') return;
@@ -1958,7 +1859,7 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
             isSelf: Boolean(f.isSelf || f.relation === '본인'),
             disabledDeduction: isDisabled ? (f.disabledDeduction && f.disabledDeduction !== '해당없음' ? f.disabledDeduction : '장애인복지법상 장애인 (200만 원)') : (f.disabledDeduction || '해당없음'),
             isDisabled,
-            basicDeduction: (cleanN.includes('고영수') || cleanN.includes('영수')) ? '해당없음' : (f.basicDeduction || '기본공제 (150만 원)'),
+            basicDeduction: shouldExcludeBasicDeduction({ ...f, isDisabled }) ? '해당없음' : (f.basicDeduction || '기본공제 (150만 원)'),
             incomeOver: f.incomeOver || '초과하지 않음',
           };
         });
@@ -2164,7 +2065,7 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
       if (netEligible <= 0) return;
 
       const fMember = familyMembers.find((m) => (m.name || '').replace(/\(.*?\)/g, '').trim() === pName);
-      const isSelf = mRel.includes('본인') || pName === loggedInWorkerName || pName === '본인' || pName === '고길동' || Boolean(fMember?.isSelf || fMember?.relation === '본인');
+      const isSelf = mRel.includes('본인') || pName === loggedInWorkerName || pName === '본인' || Boolean(fMember?.isSelf || fMember?.relation === '본인');
       const birthStr = String(fMember?.birth || fMember?.birthDate || '').trim();
       let bYear = null;
       if (birthStr.length >= 4) {
@@ -2189,11 +2090,9 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
         mRel.includes('6세') || pName.includes('6세')
       );
       const isDisabled = Boolean(
-        !pName.includes('고철수') && (
-          fMember?.isDisabled ||
-          (fMember?.disabledDeduction && fMember.disabledDeduction !== '해당없음') ||
-          mRel.includes('장애인') || pName.includes('장애인')
-        )
+        fMember?.isDisabled ||
+        (fMember?.disabledDeduction && fMember.disabledDeduction !== '해당없음') ||
+        mRel.includes('장애인') || pName.includes('장애인')
       );
       const isSpecialIll = Boolean(
         fMember?.isSeverelyIll ||
@@ -2286,9 +2185,6 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
       const parsed = saved ? JSON.parse(saved) : [];
       return parsed.map((item) => {
         const cleanN = (item.name || '').replace(/\(부양가족\)/g, '').replace(/부양가족/g, '').replace(/\(.*?\)/g, '').trim();
-        if ((cleanN.includes('고둘리') || cleanN.includes('둘리')) && item.category === '장애인특수교육') {
-          return { ...item, name: cleanN, category: '취학전아동' };
-        }
         return { ...item, name: cleanN };
       });
     } catch {
@@ -2313,12 +2209,7 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
   // - 초.중.고등학생(현장학습비): 1인당 연 30만원
   const getEduLimit = (category, memberName = '') => {
     const cat = (category || '').trim();
-    const cleanN = (memberName || '').replace(/\(부양가족\)/g, '').replace(/부양가족/g, '').replace(/\(.*?\)/g, '').trim();
 
-    // 고둘리는 연말정산 PDF 구분에 일반교육비이므로 취학전아동으로 분류 (1인당 연 300만원 한도)
-    if (cleanN.includes('고둘리') || cleanN.includes('둘리')) {
-      return 3000000;
-    }
 
     if (cat.includes('교복')) {
       return 500000;
@@ -2473,14 +2364,10 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
     setViewMode('edu_add');
   };
 
-  // 교육비 폼에서 성명 변경 핸들러 (고둘리는 취학전아동, 기타 장애인공제 대상 부양가족은 장애인특수교육 기본 설정)
+  // 교육비 폼에서 성명 변경 핸들러 (장애인공제 대상 부양가족은 장애인특수교육 기본 설정)
   const handleEduNameChange = (newName) => {
     const cleanN = (newName || '').replace(/\(부양가족\)/g, '').replace(/부양가족/g, '').replace(/\(.*?\)/g, '').trim();
     setFormEduName(cleanN);
-    if (cleanN.includes('고둘리') || cleanN.includes('둘리')) {
-      setFormEduCategory('취학전아동');
-      return;
-    }
     const isFamDisabled = Boolean(
       cleanN &&
         familyMembers.some((m) => {
@@ -2498,15 +2385,29 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
     }
   };
 
+  // '확인 필요' 교육비를 사용자가 확인 후 포함 (선택은 브라우저에 보관되어 재업로드 시에도 유지)
+  const includeReviewEduItem = (itemId) => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('selftax_edu_review_included') || '[]');
+      if (!saved.includes(itemId)) {
+        localStorage.setItem('selftax_edu_review_included', JSON.stringify([...saved, itemId]));
+      }
+    } catch {
+      // 저장 실패 시에도 현재 화면에는 반영
+    }
+    setEduItems((prev) =>
+      prev.map((i) =>
+        i.id === itemId ? { ...i, amount: Number(i.rawAmount || 0), needsReview: false, reviewReason: '' } : i
+      )
+    );
+  };
+
   // 교육비 기존 항목 수정 폼 열기 (원본 전체 금액 표시)
   const handleEditEduItem = (item) => {
     setEditingEduItemId(item.id);
     const cleanName = (item.name || loggedInWorkerName || '본인').replace(/\(부양가족\)/g, '').replace(/부양가족/g, '').replace(/\(.*?\)/g, '').trim();
     setFormEduName(cleanName);
-    let cat = item.category || '본인';
-    if ((cleanName.includes('고둘리') || cleanName.includes('둘리')) && cat === '장애인특수교육') {
-      cat = '취학전아동';
-    }
+    const cat = item.category || '본인';
     setFormEduCategory(cat);
     setFormEduAmount(item.amount ? Number(item.amount).toLocaleString() : '0');
     setFormEduSpecialAmount(item.specialAmount ? Number(item.specialAmount).toLocaleString() : '');
@@ -2598,9 +2499,7 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
     try {
       const saved = localStorage.getItem('selftax_other_insurance');
       const parsed = saved ? JSON.parse(saved) : [];
-      return Array.isArray(parsed)
-        ? parsed.filter((item) => !(item.name === '고둘리' && (item.type?.includes('장애인') || item.company?.includes('스마트'))))
-        : [];
+      return Array.isArray(parsed) ? parsed : [];
     } catch {
       return [];
     }
@@ -2927,7 +2826,7 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
 
   // 신용카드 추가/수정 폼 상태 및 증빙 모달 상태
   const [editingCardItemId, setEditingCardItemId] = useState(null);
-  const [formCardName, setFormCardName] = useState((loggedInWorkerName || '고길동').replace(/\(.*?\)/g, '').trim());
+  const [formCardName, setFormCardName] = useState((loggedInWorkerName || '본인').replace(/\(.*?\)/g, '').trim());
   const [formCardType, setFormCardType] = useState('신용카드');
   const [formCardCompany, setFormCardCompany] = useState('');
   const [formCardAmount, setFormCardAmount] = useState('');
@@ -3869,7 +3768,7 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
       return;
     }
 
-    const cleanWorkerName = (loggedInWorkerName || '고길동').replace(/\(.*?\)/g, '').trim();
+    const cleanWorkerName = (loggedInWorkerName || '본인').replace(/\(.*?\)/g, '').trim();
 
     // 1. 주택자금 자동 작성 (국세청 PDF 증명서류: 주택임차 3건 + 장기주택저당 2건)
     if (housingLoanChecklistAnswer === 'yes') {
@@ -4754,6 +4653,11 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
                             >
                               <span className="text-[15px] font-bold text-slate-800 tracking-tight">
                                 {memberName}
+                                {memberItems.some((it) => it.needsReview) && (
+                                  <span className="ml-2 align-middle text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-1.5 py-0.5">
+                                    확인 필요
+                                  </span>
+                                )}
                               </span>
                               <div className="flex items-center gap-2">
                                 <span className="text-base font-bold text-slate-900 font-mono tracking-tight">
@@ -4783,6 +4687,26 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
                                     </span>
                                   </div>
                                 ))}
+                                {memberItems
+                                  .filter((it) => it.needsReview)
+                                  .map((it) => (
+                                    <div key={it.id} className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <span className="font-bold text-amber-800">확인 필요 · {it.school || it.category}</span>
+                                        <span className="font-mono text-amber-900 whitespace-nowrap">
+                                          {Number(it.rawAmount || 0).toLocaleString()}원 (미반영)
+                                        </span>
+                                      </div>
+                                      <p className="mt-1 text-amber-700 leading-relaxed">{it.reviewReason}</p>
+                                      <button
+                                        type="button"
+                                        onClick={() => includeReviewEduItem(it.id)}
+                                        className="mt-2 px-3 py-1.5 rounded-lg bg-white border border-amber-300 text-amber-800 font-bold hover:bg-amber-100 transition"
+                                      >
+                                        확인했습니다 · 공제에 포함
+                                      </button>
+                                    </div>
+                                  ))}
                               </div>
                             )}
                           </div>

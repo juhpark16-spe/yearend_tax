@@ -11,6 +11,7 @@
  */
 
 import { classifyPensionType, calculatePensionAccountCredit } from './pensionLimit.js';
+import { cleanPersonName, failsAgeRequirement, isIncomeExcessMember } from './eligibility.js';
 
 /**
  * 연금저축/연금계좌 조회페이지(PensionSection)의 연금 항목 목록 수집 헬퍼
@@ -62,7 +63,7 @@ export function collectPensionItems({ deductionData, hometaxData, userName = '' 
     if (Array.isArray(hometaxData?.persons)) {
       hometaxData.persons.forEach((p, idx) => {
         const rawName = (p.name || userName || '본인').replace(/\(.*?\)/g, '').trim();
-        const isWorker = idx === 0 || rawName === '고길동' || p.isSelf || (userName && rawName.includes(userName));
+        const isWorker = idx === 0 || p.isSelf || (userName && rawName.includes(userName));
         const pRel = isWorker ? '본인' : (p.relation || '본인');
         const pName = rawName;
         if (Array.isArray(p.pension_details) && p.pension_details.length > 0) {
@@ -182,7 +183,7 @@ export function collectDonationItems({ deductionData, hometaxData, userName = ''
     if (Array.isArray(hometaxData?.persons)) {
       hometaxData.persons.forEach((p, idx) => {
         const rawName = (p.name || userName || '본인').replace(/\(.*?\)/g, '').trim();
-        const isWorker = idx === 0 || rawName === '고길동' || p.isSelf || (userName && rawName.includes(userName));
+        const isWorker = idx === 0 || p.isSelf || (userName && rawName.includes(userName));
         const pRel = isWorker ? '본인' : (p.relation || '부양가족');
         const donDetails = Array.isArray(p.donation_details) && p.donation_details.length > 0
           ? p.donation_details
@@ -275,7 +276,6 @@ export function calculateDonationCredit({
       !it.relation ||
       it.relation === '본인' ||
       (userName && pName.includes(userName)) ||
-      pName === '고길동' ||
       pName === '본인';
 
     if (rawType.includes('정치')) {
@@ -809,17 +809,14 @@ export function calculateSettlementTax({
       // 소득 요건 초과 여부 확인 (홍부인, 고부친 등)
       const isIncomeOver = Boolean(
         member.incomeOver === '초과함' ||
-        member.incomeExcess ||
-        cleanName === '홍부인' ||
-        cleanName === '고부친'
+        member.incomeExcess
       );
 
       // 나이 요건 검증 (소득세법 제50조):
       // - 직계비속(자녀): 만 20세 이하 (2025년 귀속 기준 2005년 1월 1일 이후 출생자). 장애인은 나이 제한 없음.
-      // - 고영수는 대학교/전문대 재학생으로 나이요건(20세 이하)에 해당하지 않아 기본공제 대상자 제외
       const isAgeDisqualified = Boolean(
         !isSelfPerson && !isDisabled && (
-          cleanName.includes('고영수') || cleanName.includes('영수') ||
+          failsAgeRequirement(member) ||
           (isChild && bYear !== null && bYear < 2005)
         )
       );
@@ -1035,7 +1032,7 @@ export function calculateSettlementTax({
     if (!item) return false;
     const rel = (item.relation || '').trim();
     if (!rel || rel === '본인' || rel.includes('본인') || rel === '근로자' || rel === '소득자' || rel === '세대주') return true;
-    if (item.name && (item.name.includes('고길동') || (userName && (item.name.includes(userName) || userName.includes(item.name))))) return true;
+    if (item.name && userName && (item.name.includes(userName) || userName.includes(item.name))) return true;
     const nonSelfWords = ['배우자', '자녀', '직계존속', '직계비속', '부', '모', '처', '남편', '형제', '자매', '시부', '시모', '장인', '장모'];
     if (rel && nonSelfWords.some((w) => rel.includes(w))) {
       return false;
@@ -1145,13 +1142,16 @@ export function calculateSettlementTax({
       let ntsGen = 0;
       let ntsDis = 0;
       hometaxData.persons.forEach((p) => {
-        if (p.name === '홍부인' || p.name === '고부친') return;
+        const fm = Array.isArray(familyList)
+          ? familyList.find((m) => cleanPersonName(m.name) === cleanPersonName(p.name))
+          : null;
+        if (p.income_excess || (fm && isIncomeExcessMember(fm))) return;
         if (Array.isArray(p.insurance_details) && p.insurance_details.length > 0) {
           p.insurance_details.forEach((d) => {
             const amt = Number(d.amount) || 0;
             const t = String(d.type || d.raw_type || '');
             const subs = Array.isArray(d.sub_insured) ? d.sub_insured : [];
-            if (t.includes('장애인') || subs.includes('고둘리')) {
+            if (t.includes('장애인')) {
               ntsDis += amt;
             } else {
               ntsGen += amt;
@@ -1282,7 +1282,7 @@ export function calculateSettlementTax({
           return mClean === pName || (pName && mClean.includes(pName)) || (pName && pName.includes(mClean));
         }) : null);
 
-      const isSelf = mRel.includes('본인') || pName === userName || pName === '본인' || pName === '고길동' || Boolean(fMember?.isSelf || fMember?.relation === '본인');
+      const isSelf = mRel.includes('본인') || pName === userName || pName === '본인' || Boolean(fMember?.isSelf || fMember?.relation === '본인');
       const bYear = fMember ? getBirthYear(fMember) : (getBirthYear(memberItems[0]));
       const isSenior = Boolean(
         fMember?.isSenior ||
@@ -1295,11 +1295,9 @@ export function calculateSettlementTax({
         mRel.includes('6세') || pName.includes('6세')
       );
       const isDisabled = Boolean(
-        !pName.includes('고철수') && (
-          fMember?.isDisabled ||
-          (fMember?.disabledDeduction && fMember.disabledDeduction !== '해당없음') ||
-          mRel.includes('장애인') || pName.includes('장애인')
-        )
+        fMember?.isDisabled ||
+        (fMember?.disabledDeduction && fMember.disabledDeduction !== '해당없음') ||
+        mRel.includes('장애인') || pName.includes('장애인')
       );
       const isSpecialIll = Boolean(
         fMember?.isSeverelyIll ||

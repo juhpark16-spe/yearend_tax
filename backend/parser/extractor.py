@@ -7,6 +7,14 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Tuple
 from backend.security.pii_mask import PIIMasker
+from backend.parser.nts_sections import (
+    age_in_tax_year,
+    build_education_item,
+    entrance_fee_limit,
+    find_disabled_names,
+    parse_education_page,
+    parse_insurance_page,
+)
 
 
 class DocumentEntityExtractor:
@@ -625,25 +633,20 @@ class DocumentEntityExtractor:
         income_excess_names = set()
         for p_chk in pages:
             if "소득기준 초과" in p_chk or "소득기준초과" in p_chk:
-                for m_excess in re.findall(r'([가-힣]{2,6})\s+(\d{6}[- ]?[1-8\*\d]{7})\s+Y', p_chk):
+                for m_excess in re.findall(r'([가-힣]{2,6})\s+(\d{6}[- ]?(?:[1-8\*\d]{7}|\[RRN Omitted\]))\s+Y', p_chk):
                     income_excess_names.add(m_excess[0].strip())
 
+        # 장애인 증명서 / 발달재활서비스 이용증명 페이지로 장애인 여부 확인
+        disabled_names = find_disabled_names(pages)
+
         def is_basic_deduction_target(name: str) -> bool:
+            """소득요건 초과로 확인된 사람만 제외한다. 나이 요건은 부양가족 단계에서 관계와 함께 판정한다."""
             clean_n = re.sub(r'\(.*?\)', '', name).strip()
-            if clean_n in income_excess_names or clean_n in ["홍부인", "고부친"]:
-                return False
-            # 고영수는 대학교/전문대 재학생으로 만 20세를 초과하여 나이요건 미달로 기본공제대상자가 아님
-            if clean_n in ["고영수", "영수"]:
-                return False
-            if not clean_n or clean_n in ["본인", worker_name]:
-                return True
-            return True
+            return clean_n not in income_excess_names
 
         def is_income_excess_person(name: str) -> bool:
             clean_n = re.sub(r'\(.*?\)', '', name).strip()
-            if clean_n in income_excess_names or clean_n in ["홍부인", "고부친"]:
-                return True
-            return False
+            return clean_n in income_excess_names
 
         def get_or_create_person(name: str, rrn: str, birth: str) -> Dict[str, Any]:
             norm_name = name.strip() or "본인"
@@ -960,50 +963,26 @@ class DocumentEntityExtractor:
                 if not is_basic_deduction_target(contractor_name):
                     continue
 
-                matched_details = []
-                for p_k, details_list in insurance_tables_by_person.items():
-                    if p_k == clean_target_name or (p_k in clean_target_name or clean_target_name in p_k):
-                        matched_details = details_list
-                        break
+                # 1순위: 페이지 텍스트의 계약 블록 구조 파싱 (기본·상세 서식 공통), 2순위: 표 추출 결과
+                page_ins = parse_insurance_page(clean_p)
+                if not page_ins:
+                    for p_k, details_list in insurance_tables_by_person.items():
+                        if p_k == clean_target_name or (p_k in clean_target_name or clean_target_name in p_k):
+                            page_ins = details_list
+                            break
 
-                if matched_details:
-                    existing_keys = {(d.get("biz_number"), d.get("amount")) for d in person.get("insurance_details", [])}
-                    for d in matched_details:
-                        m_insured = d.get("main_insured") or contractor_name
-                        subs = d.get("sub_insured", [])
-                        # 주피보험자 또는 종피보험자(수익자)에 기본공제대상자나 고둘리가 포함되어 있는지 검사
-                        has_eligible_target = (
-                            is_basic_deduction_target(m_insured) or
-                            any(is_basic_deduction_target(s) for s in subs) or
-                            any(s in ["고둘리", "둘리"] for s in subs)
-                        )
-                        if has_eligible_target:
-                            if "장애인" in d.get("raw_type", "") or any(s in ["고둘리", "둘리"] for s in subs):
-                                d["type"] = "장애인전용보장성보험"
-                            if (d.get("biz_number"), d.get("amount")) not in existing_keys:
-                                person.setdefault("insurance_details", []).append(d)
-
-                # 텍스트(clean_p) 기반 장애인전용보장성보험 (계약자 고길동, 종피보험자 고둘리 포함 스마트가정보장보험 1,962,000원) 정밀 감지 (계약자 고길동에게만 적용)
-                existing_keys = {(d.get("biz_number"), d.get("amount")) for d in person.get("insurance_details", [])}
-                if clean_target_name == "고길동" and "고둘리" in clean_p and ("장애인" in clean_p or "스마트가정보장" in clean_p):
-                    smart_m = re.search(r'(?:스마트가정보장[^\n]*\n[^\n]*장애인[^\n]*|장애인보장[^\n]*)[^\d]*?([1-9][\d,]{5,7})(?!\d)', clean_p)
-                    if not smart_m:
-                        smart_m = re.search(r'AIA생명보험[^\n]*\n[^\n]*스마트[^\n]*\n[^\n]*장애인보장[^\n]*\n[^\n]*104-91-36225[^\n]*?([1-9][\d,]{5,7})(?!\d)', clean_p)
-                    amt_smart = int(smart_m.group(1).replace(",", "")) if smart_m else 1962000
-                    if amt_smart > 50000000:
-                        amt_smart = 1962000
-                    if ("104-91-36225", amt_smart) not in existing_keys:
-                        person.setdefault("insurance_details", []).append({
-                            "biz_number": "104-91-36225",
-                            "company": "AIA생명보험",
-                            "policy_name": "스마트가정보장보험1701",
-                            "type": "장애인전용보장성보험",
-                            "raw_type": "장애인보장성",
-                            "contractor": contractor_name,
-                            "main_insured": "고영수",
-                            "sub_insured": ["고철수", "고둘리"],
-                            "amount": amt_smart,
-                        })
+                existing_keys = {(d.get("biz_number"), d.get("policy_number"), d.get("amount")) for d in person.get("insurance_details", [])}
+                for d in page_ins:
+                    d = dict(d)
+                    d["contractor"] = contractor_name
+                    m_insured = d.get("main_insured") or contractor_name
+                    subs = d.get("sub_insured", [])
+                    # 주피보험자 또는 종피보험자(수익자) 중 기본공제대상자가 있어야 공제 대상
+                    has_eligible_target = is_basic_deduction_target(m_insured) or any(is_basic_deduction_target(x) for x in subs)
+                    key = (d.get("biz_number"), d.get("policy_number"), d.get("amount"))
+                    if has_eligible_target and key not in existing_keys:
+                        person.setdefault("insurance_details", []).append(d)
+                        existing_keys.add(key)
 
                 m = re.findall(r'(?:인별합계(?:금액)?|총\s*합\s*계|합계금액|합\s*계|납입금액\s*계)[^\d\n]*[:：]?\s*([\d,]{4,})', clean_p)
                 val = 0
@@ -1159,7 +1138,7 @@ class DocumentEntityExtractor:
             # 6. 교육비 (본인 전액 공제, 교복 50만, 현장학습 30만, 전문대 대학생, 유치원/학원 취학전아동, 고등학교 초중고)
             elif any(k in section_title for k in ["교육비", "직업훈련비", "교복구입비", "수능응시료", "대학입학전형료"]):
                 target_name = person.get("name", "").strip()
-                main_worker_name = fn_match.group(1) if (filename and fn_match) else "고길동"
+                main_worker_name = fn_match.group(1) if (filename and fn_match) else worker_name
                 is_person_self = (
                     target_name in ["본인", main_worker_name] or
                     person.get("isSelf") or
@@ -1233,103 +1212,45 @@ class DocumentEntityExtractor:
                             "category": "대학생",
                             "raw_amount": amt,
                             "amount": amt,
-                            "limit": 9_000_000
+                            "limit": entrance_fee_limit(clean_p),
+                            "included": True,
+                            "needs_review": False,
+                            "review_reason": "",
                         })
                 elif "교육비" in section_title:
-                    if is_person_self or target_name == "고길동":
-                        m_gen = re.search(r'일반교육비\s*합계금액[^\d\n]*([\d,]+)', clean_p)
-                        amt = int(m_gen.group(1).replace(",", "")) if m_gen else 0
-                        if amt == 0:
-                            m = re.findall(r'(?:합계금액|합\s*계)[^\d\n]*([\d,]{4,})', clean_p)
-                            amt = int(m[-1].replace(",", "")) if m else 0
-                        if amt > 0:
-                            edu_items.append({
-                                "name": target_name,
-                                "school": "대학원/학점은행",
-                                "category": "본인",
-                                "raw_amount": amt,
-                                "amount": amt,
-                                "limit": 999_999_999
-                            })
-                    elif target_name == "고철수":
+                    # 학교별 행(교육비구분·학교명·구분·지출금액계)을 읽어 인물 이름이 아닌 서식 데이터로 분류
+                    p_age = age_in_tax_year(person.get("rrn", ""), person.get("birth", ""))
+                    p_disabled = target_name in disabled_names
+                    rows = parse_education_page(clean_p)
+                    if not rows:
                         m_gen = re.search(r'일반교육비\s*합계금액[^\d\n]*([\d,]+)', clean_p)
                         m_exp = re.search(r'현장학습비\s*합계금액[^\d\n]*([\d,]+)', clean_p)
                         a_gen = int(m_gen.group(1).replace(",", "")) if m_gen else 0
                         a_exp = int(m_exp.group(1).replace(",", "")) if m_exp else 0
                         if a_gen > 0:
-                            edu_items.append({
-                                "name": target_name,
-                                "school": "밀알학교",
-                                "category": "초·중·고등학생",
-                                "raw_amount": a_gen,
-                                "amount": a_gen,
-                                "limit": 3_000_000
-                            })
+                            rows.append({"edu_type": "", "school": "", "kind": "일반교육비", "amount": a_gen})
                         if a_exp > 0:
-                            edu_items.append({
-                                "name": target_name,
-                                "school": "밀알학교",
-                                "category": "초.중.고등학생(현장학습비)",
-                                "raw_amount": a_exp,
-                                "amount": a_exp,
-                                "limit": 300_000
-                            })
-                    elif target_name == "고영수":
-                        # 사용자 요청: 고영수의 교육비는 전문대학(경민대학교) 6,821,600원과 대학입학전형료/수능 132,000원 적용
-                        m_univ = re.search(r'전문대학[^\n\d]*([\d,]{4,})', clean_p)
-                        amt = int(m_univ.group(1).replace(",", "")) if m_univ else 6821600
-                        edu_items.append({
-                            "name": target_name,
-                            "school": "경민대학교",
-                            "category": "대학생",
-                            "raw_amount": amt,
-                            "amount": amt,
-                            "limit": 9_000_000
-                        })
-                    elif target_name == "고둘리":
-                        m_gen = re.search(r'일반교육비\s*합계금액[^\d\n]*([\d,]+)', clean_p)
-                        amt = int(m_gen.group(1).replace(",", "")) if m_gen else 0
-                        if amt > 0:
-                            edu_items.append({
-                                "name": target_name,
-                                "school": "어린이집/유치원",
-                                "category": "취학전아동",
-                                "raw_amount": amt,
-                                "amount": amt,
-                                "limit": 3_000_000
-                            })
-                    else:
-                        m_gen = re.search(r'일반교육비\s*합계금액[^\d\n]*([\d,]+)', clean_p)
-                        m_exp = re.search(r'현장학습비\s*합계금액[^\d\n]*([\d,]+)', clean_p)
-                        a_gen = int(m_gen.group(1).replace(",", "")) if m_gen else 0
-                        a_exp = int(m_exp.group(1).replace(",", "")) if m_exp else 0
-                        if a_gen == 0 and a_exp == 0:
-                            m = re.findall(r'(?:합계금액|합\s*계)[^\d\n]*([\d,]{4,})', clean_p)
-                            a_gen = int(m[-1].replace(",", "")) if m else 0
-                        cat, l_amt = get_age_category(person.get("birth"), person.get("rrn"))
-                        if a_gen > 0:
-                            edu_items.append({
-                                "name": target_name,
-                                "school": "교육기관",
-                                "category": cat,
-                                "raw_amount": a_gen,
-                                "amount": a_gen,
-                                "limit": l_amt
-                            })
-                        if a_exp > 0:
-                            edu_items.append({
-                                "name": target_name,
-                                "school": "교육기관",
-                                "category": "초.중.고등학생(현장학습비)",
-                                "raw_amount": a_exp,
-                                "amount": a_exp,
-                                "limit": 300_000
-                            })
+                            rows.append({"edu_type": "", "school": "", "kind": "현장체험학습비", "amount": a_exp})
+                    for r in rows:
+                        edu_items.append(build_education_item(
+                            name=target_name,
+                            school=r.get("school", ""),
+                            edu_type=r.get("edu_type", ""),
+                            kind=r.get("kind", "일반교육비"),
+                            amount=r["amount"],
+                            is_self=bool(is_person_self),
+                            is_disabled=p_disabled,
+                            age=p_age,
+                        ))
 
                 for item in edu_items:
+                    item.setdefault("included", True)
+                    item.setdefault("needs_review", False)
+                    item.setdefault("review_reason", "")
                     person["education_details"].append(item)
-                    results["education_child"] += item["raw_amount"]
-                    person["items"]["education_child"] += item["raw_amount"]
+                    # 검토 필요 항목(기본 제외)은 합계에 넣지 않는다
+                    results["education_child"] += item["amount"]
+                    person["items"]["education_child"] += item["amount"]
 
             # 7. 신용카드 (일반 금액은 credit_card_general에, 합계금액은 credit_card_total에, 전통시장/대중교통/문화체육은 해당 항목에 누적)
             elif "신용카드" in section_title:

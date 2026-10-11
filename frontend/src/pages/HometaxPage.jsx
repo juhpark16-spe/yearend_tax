@@ -6,6 +6,7 @@ import UploadProgressBar from '../components/UploadProgressBar';
 import { taxService } from '../services/api';
 import { getSecureItem } from '../utils/secureStorage';
 import { validatePdfFile } from '../utils/fileValidation';
+import { isIncomeExcessMember } from '../utils/eligibility';
 import { removeUserTaxDataKey } from '../utils/userTaxStorage';
 
 /**
@@ -194,7 +195,7 @@ export default function HometaxPage({
       if (matchedPersons.length === 0 && rawPersons.length > 0) {
         matchedPersons = rawPersons.map((p, idx) => ({
           ...p,
-          relation: (p.name === '본인' || p.name === '고길동' || idx === 0) ? '본인' : '부양가족',
+          relation: (p.name === '본인' || idx === 0) ? '본인' : '부양가족',
         }));
       }
 
@@ -213,7 +214,8 @@ export default function HometaxPage({
           pension = Math.max(pension, Number(items.national_pension) || 0);
           employment = Math.max(employment, Number(items.employment_insurance) || 0);
           const pName = (mp.name || '').replace(/\(.*?\)/g, '').trim();
-          const isIncomeExcess = Boolean(mp.income_excess || pName === '홍부인' || pName === '고부친');
+          const famForIncome = familyList.find((fam) => (fam.name || '').replace(/\(.*?\)/g, '').trim() === pName);
+          const isIncomeExcess = Boolean(mp.income_excess || (famForIncome && isIncomeExcessMember(famForIncome)));
 
           let personGenIns = 0;
           let personDisIns = 0;

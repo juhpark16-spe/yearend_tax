@@ -5,6 +5,7 @@ import UserAuthStatus from '../components/UserAuthStatus';
 import { useAuth } from '../context/AuthContext';
 import { getSecureItem, setSecureItem, maskRrn } from '../utils/secureStorage';
 import { validatePdfFile } from '../utils/fileValidation';
+import { failsAgeRequirement, shouldExcludeBasicDeduction } from '../utils/eligibility';
 
 /**
  * [Step 2] 부양가족 정보 및 정보변경 화면
@@ -25,17 +26,13 @@ export default function FamilyPage({ onGoHome, onNext, onPrev, onNavigateStep, u
     try {
       const saved = getSecureItem('selftax_family_list');
       if (saved && Array.isArray(saved) && saved.length > 0) {
-        // 본인 항목의 이름을 현재 로그인한 사람의 이름으로 최신화, rrn 마스킹 및 고영수 나이요건 미달 기본공제 보정
-        return saved.map((item) => {
-          const cleanN = (item.name || '').replace(/\(부양가족\)/g, '').replace(/부양가족/g, '').replace(/\(.*?\)/g, '').trim();
-          const isGoYoungSu = cleanN.includes('고영수') || cleanN.includes('영수');
-          return {
-            ...item,
-            name: item.isSelf || item.relation === '본인' ? loginName : item.name,
-            rrn: item.rrn ? maskRrn(item.rrn) : '',
-            basicDeduction: isGoYoungSu ? '해당없음' : (item.basicDeduction || '해당없음'),
-          };
-        });
+        // 본인 항목의 이름을 현재 로그인한 사람의 이름으로 최신화, rrn 마스킹 및 나이·소득 요건 미충족 시 기본공제 보정
+        return saved.map((item) => ({
+          ...item,
+          name: item.isSelf || item.relation === '본인' ? loginName : item.name,
+          rrn: item.rrn ? maskRrn(item.rrn) : '',
+          basicDeduction: shouldExcludeBasicDeduction(item) ? '해당없음' : (item.basicDeduction || '해당없음'),
+        }));
       }
     } catch (e) {
       console.error(e);
@@ -386,12 +383,15 @@ export default function FamilyPage({ onGoHome, onNext, onPrev, onNavigateStep, u
     e.preventDefault();
     if (!formName.trim()) return;
 
-    const cleanN = formName.replace(/\(부양가족\)/g, '').replace(/부양가족/g, '').replace(/\(.*?\)/g, '').trim();
-    const isGoYoungSu = cleanN.includes('고영수') || cleanN.includes('영수');
-
-    // 소득금액요건 초과 시 또는 고영수(나이요건 미달)인 경우 기본공제는 해당없음으로 처리
+    // 소득금액요건 초과 또는 나이요건 미충족(관계·생년월일·장애인 여부로 판정)이면 기본공제는 해당없음으로 처리
+    const ageFails = failsAgeRequirement({
+      relation: editingTarget?.isSelf ? '본인' : formRelation,
+      rrn: formRrn,
+      disabledDeduction: formDisabledDeduction,
+      isSelf: Boolean(editingTarget?.isSelf),
+    });
     const effectiveBasicDeduction =
-      (formIncomeOver === '초과함' || isGoYoungSu) ? '해당없음' : formBasicDeduction;
+      (formIncomeOver === '초과함' || ageFails) ? '해당없음' : formBasicDeduction;
 
     const isSelfPerson = editingTarget ? (editingTarget.isSelf || editingTarget.relation === '본인') : formRelation === '본인';
     const effectiveWomanDeduction = isSelfPerson ? formWomanDeduction : '해당없음';
