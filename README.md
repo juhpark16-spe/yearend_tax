@@ -200,7 +200,7 @@ yearend_tax/
 │       ├── tax_rates.py        # 2025년 기본세율, 누진공제, 한도액 정의
 │       └── __init__.py
 ├── rag_data/                   # 국세청 공식 가이드라인 원본 PDF 및 Vector DB
-├── tests/                      # Pytest 테스트 스위트 (108개)
+├── tests/                      # Pytest 테스트 스위트 (145개)
 │   ├── unit/                   # 단위 테스트
 │   │   ├── test_tax_engine.py          # 세액 계산 엔진 단위 테스트
 │   │   ├── test_rule_engine.py         # 규칙 검증 엔진 단위 테스트
@@ -213,7 +213,14 @@ yearend_tax/
 │   │   ├── test_jwt_verification.py    # JWT 위조·만료·데모토큰·IDOR 차단 테스트
 │   │   ├── test_guest_session.py       # 게스트 간 세션 분리·위조/만료 토큰·게스트 자료 삭제 테스트
 │   │   ├── test_tax_engine_fixes.py    # 자녀 8세·교육비 인별 한도·표준세액공제·차감 0원 테스트
-│   │   └── test_session_inputs.py      # 화면 입력 저장 → 계산 → 감사 로그 교차검증 연동 테스트
+│   │   ├── test_session_inputs.py      # 화면 입력 저장 → 계산 → 감사 로그 교차검증 연동 테스트
+│   │   ├── test_image_pii_mask.py      # 스캔본 이미지 주민번호 마스킹·외부 전송 차단 테스트
+│   │   ├── test_security_settings.py   # 운영 환경 비밀 키·보안 설정 점검 테스트
+│   │   └── test_rate_limit_retention_migrations.py # 요청 제한·보존 기간·Alembic 테스트
+│   ├── parity/                 # 두 세액 엔진 일치 테스트 (화면에는 보이지 않는 개발용)
+│   │   ├── scenarios/*.json            # 가상 인물 시나리오 6종 + 기대 결정세액·차감징수세액
+│   │   ├── run_js.mjs / compare.mjs    # node로 화면 엔진 실행·비교 (serverInputs.js 비교 함수 재사용)
+│   │   └── test_engine_parity.py       # 화면 엔진 ↔ 백엔드 API 7단계·항목별·적용순서별·이월액 비교
 │   ├── integration/            # 통합 테스트
 │   │   └── test_api_v1.py              # v1 API 엔드포인트 통합 테스트
 │   └── conftest.py             # 테스트 픽스처
@@ -223,8 +230,14 @@ yearend_tax/
 ├── .env                        # 환경 변수 (로컬)
 ├── .env.example                # 환경 변수 템플릿
 ├── requirements.txt            # 백엔드 파이썬 의존성 패키지 목록
+├── jungsanbom_web/             # (참고용·미사용) 초기 시제품 — 아래 설명 참고
 └── README.md                   # 프로젝트 문서
 ```
+
+#### `jungsanbom_web/` 폴더 안내 (현재 서비스와 무관)
+- 프로젝트 초기에 만든 **Next.js 14(App Router) 시제품**입니다. 정산봄 랜딩 페이지, Supabase Google 로그인, 5단계 사전점검 안내 대시보드만 있고 Vercel 배포 설정(`vercel.json`)이 들어 있습니다.
+- **세액 계산·PDF 분석·백엔드 API 연동은 없습니다.** 현재 서비스는 `frontend/`(React + Vite) + `backend/`(FastAPI)이며, 실행·테스트·배포 어디에서도 이 폴더를 쓰지 않습니다.
+- 디자인 참고용으로만 남겨 둔 것이므로 수정하지 않아도 되며, 필요 없어지면 폴더째 삭제해도 서비스에 영향이 없습니다. (`jungsanbom_web/.env.local`은 저장소에 올라가지 않습니다)
 
 ---
 
@@ -321,4 +334,9 @@ yearend_tax/
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -v tests/
 ```
-(총 108개 단위·통합 테스트. `test_rag_system.py` 등 RAG 4개는 OpenAI API 키와 네트워크가 있어야 통과합니다)
+(총 145개 단위·통합·엔진 일치 테스트. `test_rag_system.py` 등 RAG 4개는 OpenAI API 키와 네트워크가 있어야 통과합니다)
+
+- **두 엔진 일치 테스트**만 따로 실행: `.\.venv\Scripts\python.exe -m pytest -v tests/parity` (Node.js 필요, 없으면 건너뜀)
+  - 가상 인물 시나리오마다 화면 엔진(`taxCalculator.js`)과 백엔드 엔진을 같은 입력으로 계산해 7단계·세액공제 항목별·적용순서별 배분·다음 해 이월 기부금·지방소득세가 모두 같은지, 결정세액·차감징수세액이 기대값과 같은지 확인합니다.
+  - 세법 로직을 한쪽만 고치면 이 테스트가 실패합니다. 시나리오 추가: `tests/parity/scenarios/`에 JSON 파일을 넣고 `expected`를 채웁니다.
+- 프론트엔드 저장소 암호화 테스트: `cd frontend && npm run test:storage`

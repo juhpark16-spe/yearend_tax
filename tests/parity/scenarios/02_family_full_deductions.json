@@ -1,0 +1,77 @@
+{
+ "title": "맞벌이 아닌 4인 가구: 보험·의료·교육·카드·기부금(종류별)·연금계좌",
+ "withholding": {
+  "uploaded": true,
+  "fileName": "withholding.pdf",
+  "totalSalary": 72000000,
+  "paidIncomeTax": 5200000,
+  "paidLocalTax": 520000,
+  "nationalPension": 3240000,
+  "healthInsurance": 2552400,
+  "employmentInsurance": 648000
+ },
+ "familyList": [
+  {
+   "name": "본인",
+   "relation": "본인",
+   "isSelf": true,
+   "birth": "1985.03.15"
+  },
+  {
+   "name": "배우자",
+   "relation": "배우자",
+   "birth": "1987.07.01"
+  },
+  {
+   "name": "자녀1",
+   "relation": "자녀",
+   "birth": "2014.05.05"
+  },
+  {
+   "name": "자녀2",
+   "relation": "자녀",
+   "birth": "2019.09.09"
+  }
+ ],
+ "deductionData": {
+  "generalInsurance": 1300000,
+  "disabledInsurance": 0,
+  "medicalSelf": 800000,
+  "medicalSpecial": 600000,
+  "medicalGeneral": 2400000,
+  "education": 4200000,
+  "creditCard": 18000000,
+  "debitCard": 6000000,
+  "cashReceipt": 1200000,
+  "marketCard": 400000,
+  "transitCard": 700000,
+  "pension": 6000000,
+  "donationItems": [
+   {
+    "type": "정치자금기부금",
+    "amount": 100000,
+    "name": "본인"
+   },
+   {
+    "type": "특례기부금",
+    "amount": 500000,
+    "name": "본인"
+   },
+   {
+    "type": "일반기부금(종교단체외)",
+    "amount": 1200000,
+    "name": "본인"
+   },
+   {
+    "type": "일반기부금(종교단체)",
+    "amount": 2400000,
+    "name": "본인"
+   }
+  ]
+ },
+ "expected": {
+  "final_income_tax": 2109531,
+  "diff_total": -3399500,
+  "use_standard_credit": false
+ }
+}

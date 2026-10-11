@@ -223,12 +223,24 @@ def test_credit_card_deduction():
         culture_sports=2_000_000,
         market_transport=1_000_000,
     )
-    # base = 600,000 (직불)
-    # additional = 600,000 (문화체육) + 400,000 (전통시장) = 1,000,000
-    # total = 1,600,000
-    assert meta["actual_base"] == 600_000
-    assert meta["actual_additional"] == 1_000_000
+    # 공제가능금액 = 공제율 금액 합(187.5만+60만+60만+40만) − 공제제외금액(1,250만×15%) = 160만
+    # 기본한도(300만) 안이므로 전액 기본공제, 추가공제는 기본한도 초과분이 있을 때만 (조특법 제126조의2)
+    assert meta["actual_base"] == 1_600_000
+    assert meta["actual_additional"] == 0
     assert ded == 1_600_000
+
+    # 케이스 3-1: 기본한도를 넘으면 초과분을 전통시장·대중교통·문화체육 공제율 금액 범위에서 추가공제
+    ded, meta = calc(
+        gross_salary=50_000_000,
+        credit_card_general=12_500_000,
+        debit_card_cash=10_000_000,
+        culture_sports=0,
+        market_transport=5_000_000,
+    )
+    # 가능 = 187.5만 + 300만 + 200만 − 187.5만 = 500만 → 기본 300만 + 추가 min(200만, 200만, 300만)
+    assert meta["actual_base"] == 3_000_000
+    assert meta["actual_additional"] == 2_000_000
+    assert ded == 5_000_000
 
     # 케이스 4: 총급여 7천만 초과 시 문화/체육 공제 제외 확인
     # 총급여 8,000만 원 (문턱 2,000만)

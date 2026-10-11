@@ -1,0 +1,38 @@
+{
+ "title": "한부모·월세·10원 미만 버림",
+ "withholding": {
+  "uploaded": true,
+  "fileName": "withholding.pdf",
+  "totalSalary": 41234567,
+  "paidIncomeTax": 1234567,
+  "paidLocalTax": 123456,
+  "nationalPension": 1855555,
+  "healthInsurance": 1461765,
+  "employmentInsurance": 371111
+ },
+ "familyList": [
+  {
+   "name": "본인",
+   "relation": "본인",
+   "isSelf": true,
+   "birth": "1985.03.15",
+   "singleParentDeduction": "해당",
+   "womanDeduction": "해당"
+  },
+  {
+   "name": "자녀1",
+   "relation": "자녀",
+   "birth": "2015.04.04"
+  }
+ ],
+ "deductionData": {
+  "rent": 7200000,
+  "generalInsurance": 600000,
+  "creditCard": 15000000
+ },
+ "expected": {
+  "final_income_tax": 0,
+  "diff_total": -1358010,
+  "use_standard_credit": false
+ }
+}

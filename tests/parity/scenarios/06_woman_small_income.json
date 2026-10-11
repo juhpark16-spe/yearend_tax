@@ -1,0 +1,37 @@
+{
+ "title": "부녀자 공제(근로소득금액 3천만 이하)",
+ "withholding": {
+  "uploaded": true,
+  "fileName": "withholding.pdf",
+  "totalSalary": 33000000,
+  "paidIncomeTax": 900000,
+  "paidLocalTax": 90000,
+  "nationalPension": 1485000,
+  "healthInsurance": 1169850,
+  "employmentInsurance": 297000
+ },
+ "familyList": [
+  {
+   "name": "본인",
+   "relation": "본인",
+   "isSelf": true,
+   "birth": "1985.03.15",
+   "womanDeduction": "해당"
+  },
+  {
+   "name": "부모",
+   "relation": "직계존속",
+   "birth": "1950.01.01"
+  }
+ ],
+ "deductionData": {
+  "generalInsurance": 500000,
+  "medicalSpecial": 1500000,
+  "creditCard": 12000000
+ },
+ "expected": {
+  "final_income_tax": 294532,
+  "diff_total": -666000,
+  "use_standard_credit": false
+ }
+}

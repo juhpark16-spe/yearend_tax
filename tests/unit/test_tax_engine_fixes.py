@@ -83,7 +83,7 @@ def test_education_base_applies_per_person_limits():
              {"name": "다섯째", "category": "초·중·고등학생", "amount": 2_000_000, "needs_review": True}]
     r = calc(mixed)
     assert r["per_person"] == {"본인": 12_000_000, "셋째": 3_000_000, "넷째": 5_000_000}
-    assert calc(None, 5_000_000)["base"] == 3_000_000  # 인별 내역 없으면 1인 300만 원 기준
+    assert calc(None, 5_000_000)["base"] == 5_000_000  # 인별 내역 없으면 화면이 한도 적용해 넘긴 합계 사용
 
 
 def test_education_credit_uses_raw_details_in_pipeline(db):

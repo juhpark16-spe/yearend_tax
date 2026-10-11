@@ -584,8 +584,8 @@ export function calculateCreditCardDeduction({
   const isUnder70m = ts <= 70000000;
   const cult = isUnder70m ? Math.max(0, Number(culture) || 0) : 0;
 
-  // 최저사용액 (총급여 25%)
-  const threshold = ts * 0.25;
+  // 최저사용금액 (총급여 25%, 원 미만 버림 — 백엔드와 동일)
+  const threshold = Math.floor(ts * 0.25);
 
   // 공제율금액 계산 (원 단위 버림)
   const rateAmtCredit = Math.floor(cCard * 0.15);

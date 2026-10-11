@@ -1,0 +1,35 @@
+{
+ "title": "1인 가구, 공제자료 거의 없음 → 표준세액공제 선택",
+ "withholding": {
+  "uploaded": true,
+  "fileName": "withholding.pdf",
+  "totalSalary": 30000000,
+  "paidIncomeTax": 600000,
+  "paidLocalTax": 60000,
+  "nationalPension": 1350000,
+  "healthInsurance": 0,
+  "employmentInsurance": 0
+ },
+ "familyList": [
+  {
+   "name": "본인",
+   "relation": "본인",
+   "isSelf": true,
+   "birth": "1985.03.15"
+  }
+ ],
+ "deductionData": {
+  "donationItems": [
+   {
+    "type": "고향사랑기부금",
+    "amount": 100000,
+    "name": "본인"
+   }
+  ]
+ },
+ "expected": {
+  "final_income_tax": 399091,
+  "diff_total": -220990,
+  "use_standard_credit": true
+ }
+}

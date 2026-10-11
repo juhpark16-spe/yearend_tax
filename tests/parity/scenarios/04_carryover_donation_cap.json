@@ -1,0 +1,67 @@
+{
+ "title": "전년도 이월 기부금 + 산출세액 부족(이월 대상 발생)",
+ "withholding": {
+  "uploaded": true,
+  "fileName": "withholding.pdf",
+  "totalSalary": 28000000,
+  "paidIncomeTax": 350000,
+  "paidLocalTax": 35000,
+  "nationalPension": 1260000,
+  "healthInsurance": 992600,
+  "employmentInsurance": 251999
+ },
+ "familyList": [
+  {
+   "name": "본인",
+   "relation": "본인",
+   "isSelf": true,
+   "birth": "1985.03.15"
+  },
+  {
+   "name": "자녀1",
+   "relation": "자녀",
+   "birth": "2012.01.01"
+  }
+ ],
+ "deductionData": {
+  "medicalGeneral": 3500000,
+  "pension": 3000000,
+  "donationItems": [
+   {
+    "type": "특례기부금",
+    "amount": 1500000,
+    "name": "본인"
+   },
+   {
+    "type": "일반기부금(종교단체)",
+    "amount": 2000000,
+    "name": "본인"
+   }
+  ],
+  "donationCarryoverItems": [
+   {
+    "id": "c1",
+    "year": 2019,
+    "type": "특례기부금",
+    "amount": 1000000
+   },
+   {
+    "id": "c2",
+    "year": 2015,
+    "type": "일반기부금(종교단체외)",
+    "amount": 400000
+   },
+   {
+    "id": "c3",
+    "year": 2013,
+    "type": "특례기부금",
+    "amount": 300000
+   }
+  ]
+ },
+ "expected": {
+  "final_income_tax": 0,
+  "diff_total": -385000,
+  "use_standard_credit": false
+ }
+}

@@ -135,52 +135,38 @@ class TaxCalculationService:
                 "total_deduction": 0,
             }
 
-        # 최저사용금액: 총급여의 25%
+        # 최저사용금액: 총급여의 25% (원 미만 버림)
         threshold = math.floor(gross_salary * 0.25)
         is_under_70m = gross_salary <= 70000000
         culture_eligible = culture_sports if is_under_70m else 0
 
-        # 총 사용금액
-        total_spent = credit_card_general + debit_card_cash + culture_eligible + market_transport
+        # 공제율 적용 금액 (국세청 서식: 사용액 × 공제율, 원 미만 버림)
+        rate_amt_credit = math.floor(credit_card_general * 0.15)
+        rate_amt_debit = math.floor(debit_card_cash * 0.30)
+        rate_amt_culture = math.floor(culture_eligible * 0.30)
+        rate_amt_mt = math.floor(market_transport * 0.40)
+        total_rate_amt = rate_amt_credit + rate_amt_debit + rate_amt_culture + rate_amt_mt
 
-        # 최저사용금액(문턱) 순차 차감: 납세자에게 유리하도록 낮은 공제율 순(신용 15% -> 직불 30% -> 문화체육 30% -> 전통시장/교통 40%) 차감
-        rem_threshold = threshold
+        # 공제제외금액: 최저사용금액을 공제율이 낮은 것부터(신용 15% → 직불·현금·문화 30% → 전통시장·대중교통 40%) 채운다
+        amt15 = credit_card_general
+        amt30 = debit_card_cash + culture_eligible
+        total_spent = amt15 + amt30 + market_transport
+        if threshold <= amt15:
+            excluded = math.floor(threshold * 0.15)
+        elif threshold <= amt15 + amt30:
+            excluded = math.floor(amt15 * 0.15 + (threshold - amt15) * 0.30)
+        elif threshold <= total_spent:
+            excluded = math.floor(amt15 * 0.15 + amt30 * 0.30 + (threshold - amt15 - amt30) * 0.40)
+        else:
+            excluded = total_rate_amt
 
-        # 1) 신용카드 (15%)
-        threshold_cc = min(credit_card_general, rem_threshold)
-        rem_threshold -= threshold_cc
-        excess_cc = credit_card_general - threshold_cc
-
-        # 2) 직불/현금영수증 (30%)
-        threshold_dc = min(debit_card_cash, rem_threshold)
-        rem_threshold -= threshold_dc
-        excess_dc = debit_card_cash - threshold_dc
-
-        # 3) 도서공연/체육 (30%)
-        threshold_cs = min(culture_eligible, rem_threshold)
-        rem_threshold -= threshold_cs
-        excess_cs = culture_eligible - threshold_cs
-
-        # 4) 전통시장/대중교통 (40%)
-        threshold_mt = min(market_transport, rem_threshold)
-        rem_threshold -= threshold_mt
-        excess_mt = market_transport - threshold_mt
-
-        # 공제율 적용
-        rate_amt_credit = math.floor(excess_cc * 0.15)
-        rate_amt_debit = math.floor(excess_dc * 0.30)
-        rate_amt_culture = math.floor(excess_cs * 0.30)
-        rate_amt_mt = math.floor(excess_mt * 0.40)
-
-        # 1. 기본공제 (신용카드 + 직불/현금영수증)
-        base_target_amt = rate_amt_credit + rate_amt_debit
+        possible = max(0, total_rate_amt - excluded)
+        # 기본 공제한도: 총급여 7천만 이하 300만, 초과 250만
         base_limit = 3000000 if is_under_70m else 2500000
-        actual_base = min(base_target_amt, base_limit)
-
-        # 2. 추가공제 (도서공연/체육시설 + 전통시장/대중교통)
-        additional_target_amt = rate_amt_culture + rate_amt_mt
+        actual_base = min(possible, base_limit)
+        # 추가공제: min(한도 초과액, 전통시장·대중교통·문화체육 공제율 금액, 추가한도 300만/200만) — 조특법 제126조의2
         add_limit = 3000000 if is_under_70m else 2000000
-        actual_additional = min(additional_target_amt, add_limit)
+        actual_additional = min(max(0, possible - base_limit), rate_amt_culture + rate_amt_mt, add_limit)
 
         total_card_deduction = actual_base + actual_additional
 
@@ -389,9 +375,9 @@ class TaxCalculationService:
         - 대학원: 근로자 본인만 / '확인 필요'로 제외된 항목(included=False)은 제외
         """
         if not details:
-            # 인별 내역이 없으면 1인 기준 초중고 한도(300만 원)로 보수적으로 계산
-            base = min(3_000_000, max(0, int(fallback_amount or 0)))
-            return {"base": base, "per_person": {}, "mode": "FALLBACK_SINGLE"}
+            # 인별 내역이 없으면 화면(교육비 입력)에서 1인별 한도를 적용해 넘긴 공제대상 합계를 그대로 쓴다
+            base = max(0, int(fallback_amount or 0))
+            return {"base": base, "per_person": {}, "mode": "FALLBACK_SCREEN_TOTAL"}
         per: Dict[str, Dict[str, int]] = {}
         for d in details:
             if d.get("included") is False or d.get("needs_review"):

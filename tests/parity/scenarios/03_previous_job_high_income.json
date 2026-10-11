@@ -1,0 +1,53 @@
+{
+ "title": "중도 이직(종전근무지 합산), 총급여 1.2억 초과",
+ "withholding": {
+  "uploaded": true,
+  "fileName": "withholding.pdf",
+  "totalSalary": 85000000,
+  "paidIncomeTax": 9800000,
+  "paidLocalTax": 980000,
+  "nationalPension": 3825000,
+  "healthInsurance": 3013250,
+  "employmentInsurance": 765000
+ },
+ "previousJobs": [
+  {
+   "company": "종전회사",
+   "salary": 40000000,
+   "tax": 3100000,
+   "localTax": 310000
+  }
+ ],
+ "familyList": [
+  {
+   "name": "본인",
+   "relation": "본인",
+   "isSelf": true,
+   "birth": "1985.03.15"
+  },
+  {
+   "name": "배우자",
+   "relation": "배우자",
+   "birth": "1986.02.02"
+  }
+ ],
+ "deductionData": {
+  "generalInsurance": 1000000,
+  "medicalGeneral": 3000000,
+  "education": 2000000,
+  "creditCard": 30000000,
+  "pension": 9000000,
+  "donationItems": [
+   {
+    "type": "우리사주조합기부금",
+    "amount": 300000,
+    "name": "본인"
+   }
+  ]
+ },
+ "expected": {
+  "final_income_tax": 17876362,
+  "diff_total": 5473990,
+  "use_standard_credit": false
+ }
+}
