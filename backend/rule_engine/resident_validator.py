@@ -36,6 +36,7 @@ class ResidentValidator:
         is_disabled: bool = False,
         is_single_parent_candidate: bool = False,
         tax_year: int = 2025,
+        income_over_limit: bool = False,
     ) -> DependentValidationDetail:
         """단일 부양가족의 기본공제 및 추가공제 적격성을 판정합니다.
         
@@ -80,6 +81,11 @@ class ResidentValidator:
             is_basic_eligible = False
             reasons.append(
                 f"연간 소득금액({annual_income:,}원)이 법정 기준인 100만 원을 초과하여 기본공제 대상에서 제외됩니다."
+            )
+        elif income_over_limit:
+            is_basic_eligible = False
+            reasons.append(
+                "연간 소득금액 100만 원(근로소득만 있으면 총급여 500만 원) 초과로 입력되어 기본공제 대상에서 제외됩니다."
             )
 
         # -------------------------------------------------------------
@@ -148,6 +154,8 @@ class ResidentValidator:
                 annual_income=int(d.get("annual_income", d.get("annual_income_amount", 0))),
                 is_disabled=bool(d.get("is_disabled", False)),
                 tax_year=tax_year,
+                income_over_limit=bool(d.get("income_over_limit", False)),
             )
+            item.claimed = bool(d.get("is_basic_deduction", True))
             results.append(item)
         return results

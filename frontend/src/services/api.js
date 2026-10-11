@@ -192,6 +192,11 @@ export const taxService = {
     const response = await api.delete('/me/data');
     return response.data;
   },
+  // 부양가족·근무지 규칙 검증 (나이·소득 요건, 중복공제, 근무지 합산, 등본 대조)
+  validateTax: async (payload) => {
+    const response = await api.post('/tax/validate', payload);
+    return response.data;
+  },
   searchRag: async (query, section) => {
     const response = await api.post('/tax/rag/explain', { query, section });
     return response.data;
@@ -199,3 +204,40 @@ export const taxService = {
 };
 
 export default api;
+
+// ---------------------------------------------------------------------------
+// 서버 정산 세션 공용 헬퍼 — 교차검증·규칙검증이 같은 세션을 함께 쓴다
+// ---------------------------------------------------------------------------
+export const SERVER_SESSION_KEY = 'selftax_server_session_id';
+
+export async function ensureServerSession({ forceNew = false } = {}) {
+  if (!forceNew) {
+    try {
+      const saved = localStorage.getItem(SERVER_SESSION_KEY);
+      if (saved) return saved;
+    } catch { /* 저장소 사용 불가 시 새로 발급 */ }
+  }
+  const created = await taxService.createSession({ tax_year: 2025 });
+  try { localStorage.setItem(SERVER_SESSION_KEY, created.session_id); } catch { /* 저장 실패 무시 */ }
+  return created.session_id;
+}
+
+/** 세션 ID가 필요한 작업을 실행하고, 세션이 만료·삭제(404)되었거나 남의 세션(403)이면 새로 발급해 한 번 더 시도 */
+export async function withServerSession(task) {
+  let sessionId = await ensureServerSession();
+  try {
+    return await task(sessionId);
+  } catch (e) {
+    if (![403, 404].includes(e?.response?.status)) throw e;
+    sessionId = await ensureServerSession({ forceNew: true });
+    return task(sessionId);
+  }
+}
+
+/** 화면에 띄울 서버 오류 문구 */
+export function serverErrorMessage(e) {
+  if (e?.userMessage) return e.userMessage;
+  if (e?.response?.status === 401) return '인증이 만료되었습니다. 다시 로그인하거나 둘러보기를 새로 시작해 주세요.';
+  if (e?.response?.status === 422) return '서버가 입력 형식을 받아들이지 않았습니다. 입력값을 확인해 주세요.';
+  return '백엔드 서버에 연결하지 못했습니다. 서버(uvicorn)가 실행 중인지 확인해 주세요.';
+}

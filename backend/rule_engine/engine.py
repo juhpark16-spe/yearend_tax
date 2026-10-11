@@ -84,9 +84,12 @@ class RuleEngine:
                     "birth_date": d.birth_date,
                     "annual_income": d.annual_income_amount,
                     "is_disabled": d.is_disabled,
+                    "is_basic_deduction": bool(getattr(d, "is_basic_deduction", True)),
                 })
 
         validated_dependents = self.resident_validator.validate_all(target_dependents, tax_year=tax_year)
+        # 중복공제·등본 대조·누락공제는 실제로 기본공제를 신청한 가족만 대상으로 합니다.
+        claimed_dependents = [d for d in target_dependents if d.get("is_basic_deduction", True)]
 
         # -------------------------------------------------------------
         # 2. 근무지 데이터 수집 및 합산 검증 (WithholdingValidator)
@@ -138,14 +141,14 @@ class RuleEngine:
 
         is_matched, match_warnings, _ = self.family_matcher.match_family_members(
             resident_members=resident_members,
-            hometax_dependents=target_dependents
+            hometax_dependents=claimed_dependents
         )
 
         # -------------------------------------------------------------
         # 5. 중복 공제 탐지 (DuplicateChecker)
         # -------------------------------------------------------------
         duplicates = self.duplicate_checker.check_all_duplicates(
-            dependents=target_dependents,
+            dependents=claimed_dependents,
             deductions=target_deductions,
             is_spouse_working=is_spouse_working
         )
@@ -155,7 +158,7 @@ class RuleEngine:
         # -------------------------------------------------------------
         checklist_questions, missing_deductions = self.checklist_generator.generate_all(
             total_salary=workplace_summary.total_gross_salary,
-            dependents=target_dependents,
+            dependents=claimed_dependents,
             deductions=target_deductions,
             is_sme_youth=is_sme_youth,
             is_newly_married=is_newly_married
@@ -173,16 +176,19 @@ class RuleEngine:
 
         # 부양가족 부적격 사유 오류화
         for dep in validated_dependents:
-            if not dep.is_basic_eligible:
+            if dep.claimed and not dep.is_basic_eligible:
                 for r in dep.disqualification_reasons:
                     all_errors.append(f"[{dep.name}] {r}")
 
         # 중복 공제 결과 합산
         for dup in duplicates:
+            # 메시지에 이미 [이름]이 들어 있으면 접두어를 다시 붙이지 않습니다.
+            tag = f"[{dup.target_name}]"
+            text = dup.message if tag in dup.message else f"{tag} {dup.message}"
             if dup.severity == "ERROR":
-                all_errors.append(f"[{dup.target_name}] {dup.message}")
+                all_errors.append(text)
             else:
-                all_warnings.append(f"[{dup.target_name}] {dup.message}")
+                all_warnings.append(text)
 
         is_valid = len(all_errors) == 0
 

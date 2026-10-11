@@ -92,6 +92,10 @@ class DependentValidationItem(BaseModel):
     birth_date: Optional[str] = None
     annual_income: int = 0
     is_disabled: bool = False
+    # 화면에서 '소득금액 100만 원(근로소득만 있으면 총급여 500만 원) 초과'로 표시했는지
+    income_over_limit: bool = False
+    # 화면에서 기본공제를 신청했는지 (False면 판정만 하고 오류·중복 점검에서는 제외)
+    is_basic_deduction: bool = True
 
 
 class WorkplaceValidationItem(BaseModel):

@@ -273,3 +273,69 @@ export function compareAppliedCredits(jsResult = {}, auditLogs = []) {
     return { order: idx + 1, label, group: creditGroupOf(label), js, server, same: js === server };
   });
 }
+
+/**
+ * 화면 입력 → POST /tax/validate 요청 본문
+ * - 부양가족: 주민등록번호 원문 없이 이름·관계·생년월일·소득초과 여부·장애 여부·기본공제 신청 여부만 보낸다
+ * - 근무지: 주(현) 근무지(원천징수영수증) + 종(전) 근무지
+ */
+export function buildValidationRequest({ sessionId, familyList = [], withholdingData = null, previousJobs = [], userName = '' } = {}) {
+  const list = Array.isArray(familyList) ? familyList : [];
+  const dependents = list.map((m) => {
+    const isSelf = Boolean(m.isSelf || m.relation === '본인');
+    const excluded = !isSelf && (m.basicDeduction === '해당없음' || shouldExcludeBasicDeduction(m));
+    return {
+      name: (cleanPersonName(m.name) || (isSelf ? (userName || '본인') : '부양가족')).slice(0, 50),
+      relation: toRelation(String(m.relation || ''), isSelf),
+      birth_date: toBirthDate(m),
+      annual_income: 0,
+      income_over_limit: !isSelf && m.incomeOver === '초과함',
+      is_disabled: isDisabledMember(m),
+      is_basic_deduction: isSelf ? true : !excluded,
+    };
+  });
+
+  const wd = withholdingData || {};
+  const mainSalary = n(wd.totalSalary || wd.gross_salary || wd.salary);
+  const mainTax = n(wd.paidIncomeTax || wd.prepaid_income_tax || wd.tax);
+  const workplaces = [];
+  if (mainSalary > 0 || mainTax > 0) {
+    workplaces.push({
+      company_name: String(wd.companyName || wd.company || '주(현) 근무지').slice(0, 200),
+      workplace_type: 'CURRENT',
+      gross_salary: mainSalary,
+      prepaid_tax: mainTax,
+    });
+  }
+  (Array.isArray(previousJobs) ? previousJobs : [])
+    .filter((j) => n(j.salary) > 0 || n(j.tax) > 0)
+    .forEach((j) => workplaces.push({
+      company_name: String(j.company || '종(전) 근무지').slice(0, 200),
+      workplace_type: 'PREVIOUS',
+      gross_salary: n(j.salary),
+      prepaid_tax: n(j.tax),
+    }));
+
+  return { session_id: sessionId, dependents, workplaces };
+}
+
+/**
+ * /validate 응답의 인별 판정을 화면 판정과 나란히 비교
+ * - same: 화면의 기본공제 신청 여부와 서버의 기본공제 적격 판정이 같은지
+ */
+export function compareValidation(request = {}, response = {}) {
+  const serverDeps = Array.isArray(response?.details?.dependents) ? response.details.dependents : [];
+  return (request.dependents || []).map((d, i) => {
+    const s = serverDeps[i] || {};
+    const serverEligible = s.is_basic_eligible !== false;
+    return {
+      name: d.name,
+      relation: d.relation,
+      age: s.age ?? null,
+      screenClaimed: d.is_basic_deduction,
+      serverEligible,
+      same: d.relation === 'SELF' || d.is_basic_deduction === serverEligible,
+      reasons: Array.isArray(s.disqualification_reasons) ? s.disqualification_reasons : [],
+    };
+  });
+}

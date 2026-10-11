@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { taxService } from '../services/api';
+import { SERVER_SESSION_KEY, serverErrorMessage, taxService, withServerSession } from '../services/api';
 import { buildServerInputs, compareAppliedCredits, compareCredits, compareEngines } from '../utils/serverInputs';
 import { getSecureItem } from '../utils/secureStorage';
 
-const SESSION_KEY = 'selftax_server_session_id';
+const SESSION_KEY = SERVER_SESSION_KEY;
 const won = (v) => `${Math.round(Number(v) || 0).toLocaleString()}원`;
 
 /**
@@ -42,15 +42,6 @@ export default function ServerCrossCheckCard({ jsResult, userName = '' }) {
     setState('running');
     setError('');
     try {
-      let sessionId = null;
-      try { sessionId = localStorage.getItem(SESSION_KEY); } catch { sessionId = null; }
-      const ensureSession = async () => {
-        const created = await taxService.createSession({ tax_year: 2025 });
-        try { localStorage.setItem(SESSION_KEY, created.session_id); } catch { /* 저장 실패 무시 */ }
-        return created.session_id;
-      };
-      if (!sessionId) sessionId = await ensureSession();
-
       // 화면 엔진과 같은 저장 자료를 읽어 백엔드 입력으로 변환
       const inputs = buildServerInputs({
         jsResult,
@@ -60,20 +51,14 @@ export default function ServerCrossCheckCard({ jsResult, userName = '' }) {
         previousJobs: getSecureItem('selftax_previous_jobs', []) || [],
         userName,
       });
-      try {
+      const { result, audit } = await withServerSession(async (sessionId) => {
         await taxService.saveSessionInputs(sessionId, inputs);
-      } catch (e) {
-        // 세션이 만료·삭제되었거나 다른 사용자 세션이면 새로 발급
-        if ([403, 404].includes(e?.response?.status)) {
-          sessionId = await ensureSession();
-          await taxService.saveSessionInputs(sessionId, inputs);
-        } else {
-          throw e;
-        }
-      }
-      await taxService.calculateTax(sessionId);
-      const result = await taxService.getResult(sessionId);
-      const audit = await taxService.getAuditTrail(sessionId);
+        await taxService.calculateTax(sessionId);
+        return {
+          result: await taxService.getResult(sessionId),
+          audit: await taxService.getAuditTrail(sessionId),
+        };
+      });
       const auditLogs = Array.isArray(audit?.logs) ? audit.logs : [];
       setRows(compareEngines(jsResult, result));
       setCreditRows(compareCredits(jsResult, auditLogs, result));
@@ -81,13 +66,7 @@ export default function ServerCrossCheckCard({ jsResult, userName = '' }) {
       setLogs(auditLogs);
       setState('done');
     } catch (e) {
-      setError(
-        e?.userMessage
-          ? e.userMessage
-          : e?.response?.status === 401
-          ? '인증이 만료되었습니다. 다시 로그인하거나 둘러보기를 새로 시작해 주세요.'
-          : '백엔드 서버에 연결하지 못했습니다. 서버(uvicorn)가 실행 중인지 확인해 주세요.'
-      );
+      setError(serverErrorMessage(e));
       setState('error');
     }
   };

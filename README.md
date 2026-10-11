@@ -54,7 +54,7 @@ flowchart LR
 * **표준세액공제 판정**: 특별세액공제(특별소득공제 포함)를 받는 경우와 표준세액공제 13만 원을 받는 경우(특별소득공제를 빼고 과세표준·산출세액부터 다시 계산)의 결정세액을 끝까지 계산해 적은 쪽을 택합니다(같으면 특별세액공제).
 * **기부금 세액공제**: 한도를 정치자금 → 고향사랑(연 2,000만 원) → 특례 → 우리사주(30%) → 일반(30%, 종교단체 있으면 10%+min(20%, 종교단체 외)) 순으로 앞 종류를 빼고 계산하고, 특례·우리사주·일반 합계 1천만 원 이하 15%·초과 30%를 적용합니다.
 * **전년도 이월 기부금**: 공제자료 > 기부금 > '전년도기부금' 탭에서 기부연도(2015~2024)·종류(특례/일반 종교단체 외/일반 종교단체)·이월금액을 입력합니다. 이월분은 같은 종류의 올해 기부금보다 먼저, 기부연도가 빠른 것부터 공제되며, 다음 해로 넘어갈 이월액(한도초과 + 세액부족분)과 소멸액을 미리 보여줍니다. (이월분 공제율은 현행 15%/30% 적용)
-* 부양가족 검증(`/validate`)은 구현·테스트되어 있으며 화면 연동은 다음 과제입니다.
+* 부양가족 검증(`/validate`)은 부양가족 화면의 **서버 규칙검증** 카드에서 실행됩니다. 화면 판정(기본공제 신청 여부)과 백엔드 규칙 엔진 판정(나이·소득 요건)을 인별로 비교하고, 이중공제 위험·근무지 합산·등본 대조(등본이 있을 때만) 안내를 보여 줍니다.
 
 ---
 
@@ -66,7 +66,7 @@ flowchart LR
 | **Frontend** | `React 18`, `Vite 5`, `Tailwind CSS`, `Lucide React`, `Supabase Auth`, `React.lazy (코드 분할)` |
 | **AI & RAG** | `LangChain`, `FAISS Vector Store`, `국세청 연말정산 공식 가이드라인 RAG`, `GPT-4o (설명 생성용)` |
 | **Security** | `In-Memory PII Masker`, `Supabase JWT 서명 검증(JWKS/HS256) & IDOR Guard`, `Client-Side Recursive PII Sanitization`, `브라우저 저장소 AES-GCM 암호화(Web Crypto)` |
-| **Testing** | `Pytest` 단위·통합·두 엔진 일치 테스트 147개 (RAG 4개는 OpenAI API·네트워크 필요), 프론트엔드 저장소 암호화 테스트(`npm run test:storage`) |
+| **Testing** | `Pytest` 단위·통합·두 엔진 일치 테스트 151개 (RAG 4개는 OpenAI API·네트워크 필요), 프론트엔드 저장소 암호화(`npm run test:storage`)·규칙검증 요청 변환(`npm run test:validate`) 테스트 |
 
 ---
 
@@ -166,6 +166,7 @@ yearend_tax/
 │   │   │   ├── DesignAlertModal.jsx  # 커스텀 알림/확인 모달
 │   │   │   ├── AuditTrailTimeline.jsx# 감사 추적 인터랙티브 타임라인
 │   │   │   ├── ServerCrossCheckCard.jsx # 서버 교차검증 카드 (두 엔진 비교·감사 로그·내 서버 자료 삭제)
+│   │   │   ├── FamilyValidationCard.jsx # 부양가족 서버 규칙검증 카드 (/tax/validate)
 │   │   │   ├── AiExplainCard.jsx     # AI 근거 보기 카드 (/rag/explain)
 │   │   │   └── UserAuthStatus.jsx    # 로그인/게스트 상태 표시
 │   │   ├── pages/              # 주요 화면 (13개 전체 페이지, React.lazy 적용)
@@ -205,14 +206,15 @@ yearend_tax/
 │   ├── tailwind.config.js
 │   ├── postcss.config.js
 │   ├── tests/
-│   │   └── secureStorage.test.mjs # 저장소 AES-GCM 암호화 테스트 (npm run test:storage)
+│   │   ├── secureStorage.test.mjs # 저장소 AES-GCM 암호화 테스트 (npm run test:storage)
+│   │   └── validationRequest.test.mjs # /validate 요청 변환·판정 비교 테스트 (npm run test:validate)
 │   └── package.json            # 프론트엔드 패키지 의존성
 ├── rules/                      # 세법 규칙 정의 및 상수 모듈
 │   └── 2025/
 │       ├── tax_rates.py        # 2025년 기본세율, 누진공제, 한도액 정의
 │       └── __init__.py
 ├── rag_data/                   # 국세청 공식 가이드라인 원본 PDF 및 Vector DB
-├── tests/                      # Pytest 테스트 스위트 (147개)
+├── tests/                      # Pytest 테스트 스위트 (151개)
 │   ├── unit/                   # 단위 테스트
 │   │   ├── test_tax_engine.py          # 세액 계산 엔진 단위 테스트
 │   │   ├── test_rule_engine.py         # 규칙 검증 엔진 단위 테스트
@@ -288,7 +290,7 @@ yearend_tax/
 | | `DELETE` | `/api/v1/me/data` | 서버에 저장된 내 자료(모든 세션) 전체 삭제 |
 | **문서 처리** | `POST` | `/api/v1/upload` | 다중 PDF 업로드 (최대 20MB), 인메모리 PII 마스킹 및 4종 자동 분류 |
 | | `POST` | `/api/v1/ocr` | PDF 텍스트 추출 및 문서 엔티티 분석/분류 (HOMETAX, WITHHOLDING 등) |
-| **적격성 검증** | `POST` | `/api/v1/validate` | 부양가족 나이·소득 요건(100만원 이하) 판정 및 중도이직 근무지 합산 검증 |
+| **적격성 검증** | `POST` | `/api/v1/validate` | 부양가족 나이·소득 요건(100만원 이하) 판정, 이중공제 위험, 중도이직 근무지 합산, 등본 대조 (별칭 `/tax/validate`, 부양가족 화면에서 호출) |
 | **세액 계산** | `POST` | `/api/v1/calculate` | 2025 귀속 세액 정밀 계산 및 7단계 Audit Log(감사 로그) DB 영속화 |
 | **결과 & 감사** | `GET` | `/api/v1/result/{identifier}` | 최종 결정세액, 환급/추징세액, 소득·세액공제 종합 상세 조회 |
 | | `GET` | `/api/v1/audit/{identifier}` | "왜 이 금액인가요?" 7단계 연산 과정, 법정 수식 및 국세청 근거 조항 조회 |
@@ -352,9 +354,10 @@ yearend_tax/
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -v tests/
 ```
-(총 147개 단위·통합·엔진 일치 테스트. `test_rag_system.py` 등 RAG 4개는 OpenAI API 키와 네트워크가 있어야 통과합니다)
+(총 151개 단위·통합·엔진 일치 테스트. `test_rag_system.py` 등 RAG 4개는 OpenAI API 키와 네트워크가 있어야 통과합니다)
 
 - **두 엔진 일치 테스트**만 따로 실행: `.\.venv\Scripts\python.exe -m pytest -v tests/parity` (Node.js 필요, 없으면 건너뜀)
   - 가상 인물 시나리오마다 화면 엔진(`taxCalculator.js`)과 백엔드 엔진을 같은 입력으로 계산해 7단계·세액공제 항목별·적용순서별 배분·다음 해 이월 기부금·지방소득세가 모두 같은지, 결정세액·차감징수세액이 기대값과 같은지 확인합니다.
   - 세법 로직을 한쪽만 고치면 이 테스트가 실패합니다. 시나리오 추가: `tests/parity/scenarios/`에 JSON 파일을 넣고 `expected`를 채웁니다.
 - 프론트엔드 저장소 암호화 테스트: `cd frontend && npm run test:storage`
+- 프론트엔드 규칙검증 요청 변환 테스트: `cd frontend && npm run test:validate`

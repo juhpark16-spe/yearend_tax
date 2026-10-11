@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test:storage": "node tests/secureStorage.test.mjs"
+    "test:storage": "node tests/secureStorage.test.mjs",
+    "test:validate": "node tests/validationRequest.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",

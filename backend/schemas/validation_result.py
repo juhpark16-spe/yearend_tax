@@ -19,6 +19,7 @@ class DependentValidationDetail(BaseModel):
     is_disabled: bool = Field(False, description="장애인 추가공제(200만) 해당 여부")
     is_single_parent: bool = Field(False, description="한부모 추가공제(100만) 해당 여부")
     disqualification_reasons: List[str] = Field(default_factory=list, description="부적격 사유 목록")
+    claimed: bool = Field(True, description="화면에서 기본공제를 신청했는지 여부")
 
 
 class DuplicateCheckDetail(BaseModel):

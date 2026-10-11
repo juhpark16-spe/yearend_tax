@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import TaxStepProgressBar from '../components/TaxStepProgressBar';
+import FamilyValidationCard from '../components/FamilyValidationCard';
 import HomeButton from '../components/HomeButton';
 import UserAuthStatus from '../components/UserAuthStatus';
 import { useAuth } from '../context/AuthContext';
@@ -590,6 +591,9 @@ export default function FamilyPage({ onGoHome, onNext, onPrev, onNavigateStep, u
                 <span>+ 부양가족 수정/추가</span>
               </button>
             </div>
+
+            {/* 서버 규칙검증 (POST /tax/validate) */}
+            <FamilyValidationCard familyList={familyList} userName={loginName} />
           </div>
 
           {/* 하단 고정 액션 바: 이전 / 저장·다음 */}

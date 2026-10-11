@@ -121,6 +121,35 @@ def test_family_matcher_separated_family_warning():
     assert any("주민등록등본상 세대 구성원에 포함되어 있지 않습니다" in w for w in warnings)
 
 
+def test_family_matcher_skips_without_resident_doc():
+    """등본이 없으면 대조 경고를 내지 않음"""
+    is_matched, warnings, unmatched = FamilyMatcher.match_family_members(
+        [], [{"name": "홍길동", "relation": "SELF"}, {"name": "김부모", "relation": "PARENT"}]
+    )
+    assert is_matched is True and warnings == [] and unmatched == []
+
+
+def test_family_matcher_relation_specific_hint():
+    """배우자/자녀는 별거 직계존속 문구가 아닌 관계별 안내"""
+    _, warnings, unmatched = FamilyMatcher.match_family_members(
+        [{"name": "홍길동", "relation": "SELF"}],
+        [{"name": "홍길동", "relation": "SELF"}, {"name": "홍자녀", "relation": "CHILD"}],
+    )
+    assert unmatched == ["홍자녀"]
+    assert "직계비속" in warnings[0] and "직계존속" not in warnings[0]
+
+
+def test_rule_engine_no_double_name_prefix():
+    """중복공제 경고에 [이름] 접두어가 두 번 붙지 않음"""
+    from backend.rule_engine.engine import RuleEngine
+    result = RuleEngine(db=None).validate_session(
+        "x", custom_dependents=[{"name": "김부모", "relation": "PARENT", "birth_date": "1950-01-01"}],
+        custom_workplaces=[], custom_deductions={},
+    )
+    assert not any("[김부모] [김부모]" in w for w in result.warnings)
+    assert not any("세대 구성원" in w for w in result.warnings)
+
+
 # ============================================================================
 # 3. DuplicateChecker (중복/과다공제 탐지)
 # ============================================================================
@@ -229,3 +258,18 @@ def test_rule_engine_validate_session():
     assert len(result.dependents) == 3
     assert len(result.checklist_questions) > 0
     assert len(result.missing_deductions) > 0
+
+
+def test_rule_engine_unclaimed_dependent_not_error():
+    """화면에서 기본공제를 신청하지 않은 가족은 판정만 하고 오류로 집계하지 않음"""
+    from backend.rule_engine.engine import RuleEngine
+    deps = [
+        {"name": "홍부모", "relation": "PARENT", "birth_date": "1970-01-01", "is_basic_deduction": False},
+        {"name": "홍자녀", "relation": "CHILD", "birth_date": "2010-01-01", "income_over_limit": True},
+    ]
+    r = RuleEngine(db=None).validate_session("x", custom_dependents=deps, custom_workplaces=[], custom_deductions={})
+    by = {d["name"]: d for d in r.details["dependents"]}
+    assert by["홍부모"]["claimed"] is False and by["홍부모"]["is_basic_eligible"] is False
+    assert not any("홍부모" in e for e in r.errors)
+    assert not any("홍부모" in w for w in r.warnings)  # 형제자매 이중공제 경고도 신청분만
+    assert any("[홍자녀]" in e and "초과로 입력" in e for e in r.errors)
