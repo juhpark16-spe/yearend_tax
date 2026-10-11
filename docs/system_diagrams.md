@@ -28,7 +28,7 @@ graph TB
         UI_Input["세무 데이터 입력 (Family, DataInput)"]
         UI_Result["결과 & 감사 추적 (TaxResult, Timeline)"]
         UI_AI["AI 리포트 & 절세팁 (AiReport, TaxTips)"]
-        ClientStorage["클라이언트 저장소 (secureStorage: PII 재귀 마스킹)"]
+        ClientStorage["클라이언트 저장소 (secureStorage: PII 재귀 마스킹 + AES-GCM 암호화)"]
     end
 
     subgraph Gateway ["API 게이트웨이 & 보안 가드"]

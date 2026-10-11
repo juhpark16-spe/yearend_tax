@@ -64,7 +64,7 @@ flowchart LR
 | **Backend** | `FastAPI`, `Python 3.12`, `SQLAlchemy 2.0`, `Pydantic v2`, `SQLite / PostgreSQL`, `Alembic` |
 | **Frontend** | `React 18`, `Vite 5`, `Tailwind CSS`, `Lucide React`, `Supabase Auth`, `React.lazy (코드 분할)` |
 | **AI & RAG** | `LangChain`, `FAISS Vector Store`, `국세청 연말정산 공식 가이드라인 RAG`, `GPT-4o (설명 생성용)` |
-| **Security** | `In-Memory PII Masker`, `Supabase JWT 서명 검증(JWKS/HS256) & IDOR Guard`, `Client-Side Recursive PII Sanitization` |
+| **Security** | `In-Memory PII Masker`, `Supabase JWT 서명 검증(JWKS/HS256) & IDOR Guard`, `Client-Side Recursive PII Sanitization`, `브라우저 저장소 AES-GCM 암호화(Web Crypto)` |
 | **Testing** | `Pytest` 단위·통합 테스트 108개 (RAG 4개는 OpenAI API·네트워크 필요) |
 
 ---
@@ -180,7 +180,7 @@ yearend_tax/
 │   │   │   └── api.js                # Axios REST API 클라이언트
 │   │   ├── utils/              # 유틸리티 함수 및 스토리지
 │   │   │   ├── taxCalculator.js      # 프론트엔드 실시간 세액 계산 엔진
-│   │   │   ├── secureStorage.js      # PII 재귀 마스킹 및 암호화 로컬 스토리지
+│   │   │   ├── secureStorage.js      # PII 재귀 마스킹 + 민감 키 AES-GCM 투명 암호화(IndexedDB 비추출 키)
 │   │   │   ├── userTaxStorage.js     # 사용자별 세무 데이터 관리자
 │   │   │   ├── guestStorage.js       # 게스트 모드 로컬 세션 스토리지
 │   │   │   ├── pensionLimit.js       # 연금계좌 한도 계산 유틸
@@ -234,6 +234,8 @@ yearend_tax/
 * **수식 연산 결정론화 (Zero-Hallucination)**: 세액 계산 자체에는 LLM을 일절 사용하지 않아 AI의 수식 왜곡 및 할루시네이션 위험을 원천 차단합니다.
 * **JWT 서명 검증 & IDOR(BOLA) 방어**: `SUPABASE_URL`(JWKS) 또는 `SUPABASE_JWT_SECRET`으로 토큰 서명·만료·aud를 검증하고, 세션·문서마다 소유자를 대조합니다. 운영 모드(`ENVIRONMENT=production`)에서는 `X-User-Id`·데모 토큰을 무시하며, 검증 설정이 없으면 모든 토큰을 거부합니다.
 * **게스트 세션 분리**: '로그인 없이 둘러보기' 사용자는 `POST /api/v1/auth/guest`로 서버가 서명한 게스트 전용 토큰(HMAC-SHA256, 기본 24시간)을 받아 요청합니다. 게스트마다 서버 계정이 따로 생겨 다른 게스트의 세션·결과·감사로그에 접근할 수 없고(403), 토큰 없는 요청은 세션 API에서 401로 거부됩니다(공용 기본 사용자 세션 제거). 둘러보기를 끝내거나 창을 닫으면 `DELETE /api/v1/auth/guest`로 서버 자료를 지우고, 남은 만료 게스트 자료는 새 게스트 발급 시 정리합니다. 브라우저에서는 활성 작업 공간의 주인(`selftax_active_owner`)을 기록해 게스트↔로그인 사용자, 사용자 A↔B 전환 시 이전 사람의 자료를 비우고 남의 자료를 내 계정 번들에 저장하지 않습니다. 운영 배포 시 `.env`에 `GUEST_TOKEN_SECRET`(또는 `SECRET_KEY`)를 설정하세요(미설정 시 서버 재시작마다 게스트 토큰이 무효).
+* **브라우저 저장소 암호화**: 급여·부양가족·공제·국세청 PDF 추출 자료·AI 리포트·계정별 백업 번들은 Web Crypto **AES-GCM 256비트**(자료마다 임의 IV, 위·변조 검증)로 암호화해 localStorage/sessionStorage에 저장합니다(`_sec_v2_` 형식). 키는 브라우저 밖으로 꺼낼 수 없는(non-extractable) CryptoKey로 IndexedDB에 보관하며 소스 코드에 키가 없습니다. 앱 시작 시(`initSecureStorage`) 복호화해 메모리에 두므로 기존 코드는 그대로 `localStorage.getItem/setItem`을 쓰고, 이전 평문·`_sec_v1_`(고정 키 XOR) 자료는 자동으로 다시 암호화됩니다. 같은 페이지의 스크립트(XSS)는 값을 읽을 수 있으므로 주민등록번호 뒷자리 마스킹은 계속 적용합니다. 검증: `npm run test:storage`.
+* **비밀 키 관리**: 백엔드 `.env`에는 이 프로젝트가 쓰는 값만 두고(`.env.example` 참고), 모든 `.env.*` 변형 파일은 저장소에서 제외합니다. 운영 환경(`ENVIRONMENT=production`)에서 `SECRET_KEY`가 기본값·32자 미만이거나 로그인 토큰 서명 검증 설정이 없으면 서버가 시작되지 않으며, API 문서(`/docs`)도 꺼집니다. Supabase anon 키(`VITE_SUPABASE_ANON_KEY`)는 공개용 키라 프론트엔드에 둘 수 있지만, Google OAuth 클라이언트 비밀번호 등은 Supabase 대시보드에서만 관리합니다.
 * **클라이언트 PII 재귀 살균**: `deepSanitizeSensitiveData`를 통해 브라우저 로컬 저장소 저장 직전 모든 객체 트리의 주민번호 및 식별번호를 자동 마스킹합니다.
 * **안전한 HTTP 보안 헤더 탑재**: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin` 적용.
 
