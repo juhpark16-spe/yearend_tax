@@ -86,6 +86,19 @@ class TaxSessionService:
         self.db.refresh(session)
         return session
 
+    def get_latest_session_for_user(self, user_id: str, tax_year: int = 2025) -> Optional[TaxSession]:
+        """요청자의 가장 최근(마지막 사용) 세션 — 업로드 시 세션을 새로 만들지 않고 이어 쓰기 위함"""
+        try:
+            uid = uuid.UUID(str(user_id))
+        except (ValueError, AttributeError):
+            uid = uuid.uuid5(uuid.NAMESPACE_DNS, str(user_id))
+        return (
+            self.db.query(TaxSession)
+            .filter(TaxSession.user_id == uid, TaxSession.tax_year == tax_year)
+            .order_by(TaxSession.updated_at.desc(), TaxSession.created_at.desc())
+            .first()
+        )
+
     def get_session(self, session_id: str) -> Optional[TaxSession]:
         """세션 ID로 세션 정보를 조회합니다.
         """

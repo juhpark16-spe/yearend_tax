@@ -3,7 +3,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.core.config import settings
-from backend.core.database import Base, engine
+from backend.core.database import SessionLocal
+from backend.core.migrations import ensure_database_schema
 from backend.api.v1.endpoints import router as api_v1_router
 from backend.core.security_check import enforce_security_settings
 
@@ -11,8 +12,8 @@ from backend.core.security_check import enforce_security_settings
 enforce_security_settings()
 _IS_PRODUCTION = str(settings.ENVIRONMENT).lower() == "production"
 
-# DB 테이블 자동 생성 (스켈레톤 개발용)
-Base.metadata.create_all(bind=engine)
+# DB 구조는 Alembic 마이그레이션으로만 관리 (개발 환경: 자동 upgrade, 운영: 버전 확인 후 미적용이면 시작 중단)
+ensure_database_schema()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -41,6 +42,20 @@ async def add_security_headers(request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return response
+
+
+@app.on_event("startup")
+def _purge_stale_server_data() -> None:
+    """서버 시작 시 보존 기간이 지난 서버 자료 정리 (이후에는 요청 처리 중 1시간에 한 번)"""
+    from backend.services.data_retention import purge_stale_data
+
+    db = SessionLocal()
+    try:
+        purge_stale_data(db)
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
 
 
 # API v1 라우터 등록

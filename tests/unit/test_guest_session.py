@@ -68,6 +68,8 @@ def test_expired_guest_data_purged(client: TestClient, monkeypatch):
     sid = client.post("/api/v1/sessions", json={"tax_year": 2025}, headers=g).json()["session_id"]
     # 유효 시간을 0으로 보고 정리 → 방금 만든 게스트도 만료 대상
     monkeypatch.setattr(guest_mod, "_ttl_seconds", lambda: -1)
+    from backend.services.data_retention import reset_purge_timer
+    reset_purge_timer()  # 정리는 1시간에 한 번이므로 시험을 위해 타이머 초기화
     _guest(client)  # 새 게스트 발급 시 만료 게스트 정리
     monkeypatch.undo()
     assert client.get(f"/api/v1/sessions/{sid}", headers=g).status_code == 404

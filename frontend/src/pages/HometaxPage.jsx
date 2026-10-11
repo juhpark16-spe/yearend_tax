@@ -135,7 +135,7 @@ export default function HometaxPage({
       }
     } catch (err) {
       console.error('Backend hometax upload/parse error:', err);
-      parseError = '백엔드 서버 통신 장애가 발생했거나 파일 형식을 분석할 수 없습니다.';
+      parseError = err?.userMessage || '백엔드 서버 통신 장애가 발생했거나 파일 형식을 분석할 수 없습니다.';
     }
 
     setTimeout(() => {

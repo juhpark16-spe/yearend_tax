@@ -19,6 +19,24 @@ export default function ServerCrossCheckCard({ jsResult, userName = '' }) {
   const [logs, setLogs] = useState([]);
   const [error, setError] = useState('');
   const [openLogs, setOpenLogs] = useState(false);
+  // 서버에 저장된 내 자료 삭제 (한 번 더 눌러야 삭제되는 2단계 버튼)
+  const [deleteState, setDeleteState] = useState('idle'); // idle | confirm | deleting | done | error
+  const deleteServerData = async () => {
+    if (deleteState !== 'confirm') {
+      setDeleteState('confirm');
+      return;
+    }
+    setDeleteState('deleting');
+    try {
+      await taxService.deleteMyServerData();
+      try { localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
+      setRows([]); setCreditRows([]); setAppliedRows([]); setLogs([]);
+      setState('idle');
+      setDeleteState('done');
+    } catch (e) {
+      setDeleteState('error');
+    }
+  };
 
   const run = async () => {
     setState('running');
@@ -64,7 +82,9 @@ export default function ServerCrossCheckCard({ jsResult, userName = '' }) {
       setState('done');
     } catch (e) {
       setError(
-        e?.response?.status === 401
+        e?.userMessage
+          ? e.userMessage
+          : e?.response?.status === 401
           ? '인증이 만료되었습니다. 다시 로그인하거나 둘러보기를 새로 시작해 주세요.'
           : '백엔드 서버에 연결하지 못했습니다. 서버(uvicorn)가 실행 중인지 확인해 주세요.'
       );
@@ -200,6 +220,30 @@ export default function ServerCrossCheckCard({ jsResult, userName = '' }) {
           )}
         </>
       )}
+
+      <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
+        <p className="text-[10.5px] text-slate-400 leading-snug">
+          서버 자료(업로드 분석·입력·결과)는 마지막 사용 후 30일이 지나면 자동 삭제됩니다.
+        </p>
+        <button
+          type="button"
+          onClick={deleteServerData}
+          disabled={deleteState === 'deleting'}
+          className={`shrink-0 text-[11px] font-bold px-2.5 py-1.5 rounded-lg border transition cursor-pointer ${
+            deleteState === 'confirm' ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-200 text-slate-500 hover:text-rose-600'
+          }`}
+        >
+          {deleteState === 'confirm'
+            ? '한 번 더 누르면 삭제'
+            : deleteState === 'deleting'
+            ? '삭제 중...'
+            : deleteState === 'done'
+            ? '서버 자료 삭제됨'
+            : deleteState === 'error'
+            ? '삭제 실패 · 다시 시도'
+            : '서버에 저장된 내 자료 삭제'}
+        </button>
+      </div>
     </div>
   );
 }

@@ -235,6 +235,8 @@ yearend_tax/
 * **JWT 서명 검증 & IDOR(BOLA) 방어**: `SUPABASE_URL`(JWKS) 또는 `SUPABASE_JWT_SECRET`으로 토큰 서명·만료·aud를 검증하고, 세션·문서마다 소유자를 대조합니다. 운영 모드(`ENVIRONMENT=production`)에서는 `X-User-Id`·데모 토큰을 무시하며, 검증 설정이 없으면 모든 토큰을 거부합니다.
 * **게스트 세션 분리**: '로그인 없이 둘러보기' 사용자는 `POST /api/v1/auth/guest`로 서버가 서명한 게스트 전용 토큰(HMAC-SHA256, 기본 24시간)을 받아 요청합니다. 게스트마다 서버 계정이 따로 생겨 다른 게스트의 세션·결과·감사로그에 접근할 수 없고(403), 토큰 없는 요청은 세션 API에서 401로 거부됩니다(공용 기본 사용자 세션 제거). 둘러보기를 끝내거나 창을 닫으면 `DELETE /api/v1/auth/guest`로 서버 자료를 지우고, 남은 만료 게스트 자료는 새 게스트 발급 시 정리합니다. 브라우저에서는 활성 작업 공간의 주인(`selftax_active_owner`)을 기록해 게스트↔로그인 사용자, 사용자 A↔B 전환 시 이전 사람의 자료를 비우고 남의 자료를 내 계정 번들에 저장하지 않습니다. 운영 배포 시 `.env`에 `GUEST_TOKEN_SECRET`(또는 `SECRET_KEY`)를 설정하세요(미설정 시 서버 재시작마다 게스트 토큰이 무효).
 * **스캔본 PDF 개인정보 보호**: 텍스트 레이어가 없는 PDF는 페이지 이미지를 OpenAI Vision OCR로 보내기 전에 로컬 OCR(`rapidocr-onnxruntime`)로 주민등록번호를 찾아 뒷자리 7자리를 검은 박스로 가리고, 다시 OCR해 남은 번호가 없는지 확인합니다. 로컬 OCR이 없거나 가릴 수 없는 페이지는 외부로 보내지 않습니다(`backend/security/image_pii_mask.py`).
+* **요청 횟수 제한**: 게스트 토큰 발급(IP당 10분 10회), AI 해설·RAG 검색(사용자당 10분 20회 + IP당 40회), PDF 업로드(사용자당 10분 30회), 그 밖의 API(사용자당 1분 120회)를 넘으면 429와 `Retry-After`로 거절합니다(`backend/core/rate_limit.py`, `.env`의 `RATE_LIMIT_*`). 프로세스 메모리 기준이라 여러 서버로 운영하면 Redis 등 공유 저장소 방식으로 바꿔야 합니다.
+* **서버 자료 보존 기간**: PDF 업로드는 요청자의 최근 세션을 이어 쓰고(같은 파일 재업로드는 교체), 마지막 사용 후 `DATA_RETENTION_DAYS`(기본 30일)가 지난 세션은 문서·입력·결과·감사로그와 함께 자동 삭제합니다(서버 시작 시 + 1시간마다). 사용자는 교차검증 카드의 '서버에 저장된 내 자료 삭제' 또는 `DELETE /api/v1/me/data`, `DELETE /api/v1/sessions/{id}`로 즉시 지울 수 있습니다.
 * **차감징수세액 10원 미만 버림**: 원천징수영수증과 같이 소득세·지방소득세 차감징수세액을 각각 10원 미만 버립니다(환급도 0원 쪽으로). 차감액이 0원이면 '환급·추가납부 없음'으로 표시합니다.
 * **브라우저 저장소 암호화**: 급여·부양가족·공제·국세청 PDF 추출 자료·AI 리포트·계정별 백업 번들은 Web Crypto **AES-GCM 256비트**(자료마다 임의 IV, 위·변조 검증)로 암호화해 localStorage/sessionStorage에 저장합니다(`_sec_v2_` 형식). 키는 브라우저 밖으로 꺼낼 수 없는(non-extractable) CryptoKey로 IndexedDB에 보관하며 소스 코드에 키가 없습니다. 앱 시작 시(`initSecureStorage`) 복호화해 메모리에 두므로 기존 코드는 그대로 `localStorage.getItem/setItem`을 쓰고, 이전 평문·`_sec_v1_`(고정 키 XOR) 자료는 자동으로 다시 암호화됩니다. 같은 페이지의 스크립트(XSS)는 값을 읽을 수 있으므로 주민등록번호 뒷자리 마스킹은 계속 적용합니다. 검증: `npm run test:storage`.
 * **비밀 키 관리**: 백엔드 `.env`에는 이 프로젝트가 쓰는 값만 두고(`.env.example` 참고), 모든 `.env.*` 변형 파일은 저장소에서 제외합니다. 운영 환경(`ENVIRONMENT=production`)에서 `SECRET_KEY`가 기본값·32자 미만이거나 로그인 토큰 서명 검증 설정이 없으면 서버가 시작되지 않으며, API 문서(`/docs`)도 꺼집니다. Supabase anon 키(`VITE_SUPABASE_ANON_KEY`)는 공개용 키라 프론트엔드에 둘 수 있지만, Google OAuth 클라이언트 비밀번호 등은 Supabase 대시보드에서만 관리합니다.
@@ -283,6 +285,9 @@ yearend_tax/
    ```powershell
    uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
    ```
+   - DB 구조는 Alembic 마이그레이션으로만 관리합니다. 개발 환경에서는 서버 시작 시 자동으로 최신 버전(`alembic upgrade head`)으로 맞추고, 예전 방식(`create_all`)으로 만든 기존 DB는 구조를 비교해 같으면 그대로 이어 씁니다.
+   - 운영 환경은 배포 단계에서 `alembic upgrade head`를 먼저 실행해야 하며, 버전이 맞지 않으면 서버가 시작되지 않습니다.
+   - 모델을 바꿀 때: `alembic revision --autogenerate -m "설명"` → 생성된 파일 검토 → `alembic upgrade head`
 
 4. **API 문서 확인**
    - Swagger UI: `http://localhost:8000/docs`

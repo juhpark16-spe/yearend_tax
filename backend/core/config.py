@@ -1,7 +1,7 @@
 """애플리케이션 환경설정 모듈
 """
 import os
-from typing import List
+from typing import List, Optional
 from pydantic import AnyHttpUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -37,6 +37,21 @@ class Settings(BaseSettings):
     # 게스트(로그인 없이 둘러보기) 세션 분리: 게스트 토큰 서명 키와 유효 시간
     GUEST_TOKEN_SECRET: str = ""      # 미설정 시 SECRET_KEY 사용 (기본값이면 프로세스 임시 키)
     GUEST_SESSION_TTL_HOURS: int = 24
+
+    # 요청 횟수 제한 ("횟수/초" 형식, 프로세스 메모리 기준 슬라이딩 윈도우)
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_GUEST: str = "10/600"        # 게스트 토큰 발급: IP당 10분에 10회
+    RATE_LIMIT_AI: str = "20/600"           # AI 해설·RAG 검색: 사용자(게스트)당 10분에 20회
+    RATE_LIMIT_AI_PER_IP: str = "40/600"    # AI 해설·RAG 검색: IP당 10분에 40회 (게스트 토큰 재발급 우회 방지)
+    RATE_LIMIT_UPLOAD: str = "30/600"       # PDF 업로드: 사용자당 10분에 30회
+    RATE_LIMIT_DEFAULT: str = "120/60"      # 세션·입력 저장·계산·조회: 사용자당 1분에 120회
+    TRUST_PROXY_HEADERS: bool = False       # 리버스 프록시 뒤에서만 True (X-Forwarded-For 사용)
+
+    # 서버 자료 보존 기간: 마지막 사용 후 이 기간이 지난 세션(문서·입력·결과·감사로그 포함)은 자동 삭제
+    DATA_RETENTION_DAYS: int = 30
+
+    # DB 구조 관리(Alembic): 시작 시 자동 마이그레이션 여부 (미지정 시 개발 환경만 자동, 운영은 확인만)
+    DB_AUTO_MIGRATE: Optional[bool] = None
 
     # AI & API Keys
     OPENAI_API_KEY: str = ""

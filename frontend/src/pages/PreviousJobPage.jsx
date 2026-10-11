@@ -166,7 +166,7 @@ export default function PreviousJobPage({
         }
       } catch (e) {
         console.error('Backend parse error for previous job:', e);
-        parseError = '백엔드 서버 통신 중 오류가 발생했습니다.';
+        parseError = e?.userMessage || '백엔드 서버 통신 중 오류가 발생했습니다.';
       }
 
       if (parseError || !backendParsed) {

@@ -153,7 +153,7 @@ export default function WithholdingPage({
       }
     } catch (err) {
       console.error('Backend PDF upload/parse error:', err);
-      parseError = '백엔드 서버 통신 장애가 발생했거나 파일 형식을 분석할 수 없습니다.';
+      parseError = err?.userMessage || '백엔드 서버 통신 장애가 발생했거나 파일 형식을 분석할 수 없습니다.';
     }
 
     // 서버 응답 대기 및 자연스러운 파싱 처리 완료

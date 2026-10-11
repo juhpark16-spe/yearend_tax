@@ -67,6 +67,15 @@ class DocumentService:
         parsed_doc = self.pdf_parser.parse_pdf(file_bytes, filename)
         doc_type_enum = DocumentType[parsed_doc.doc_type]
 
+        # 같은 세션에 같은 파일(같은 이름·같은 서류 종류)을 다시 올리면 이전 분석 결과를 교체한다 (중복 누적 방지)
+        for old in (
+            self.db.query(Document)
+            .filter(Document.session_id == sess_uuid, Document.original_filename == filename,
+                    Document.doc_type == doc_type_enum)
+            .all()
+        ):
+            self.db.delete(old)
+
         document = Document(
             session_id=sess_uuid,
             doc_type=doc_type_enum,

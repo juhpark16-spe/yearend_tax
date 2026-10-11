@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
@@ -34,11 +35,12 @@ from backend.schemas.tax_schema import (
     ValidationResponse,
 )
 from backend.schemas.explanation import ExplanationDTO, TaxExplanationRequest
+from backend.services.data_retention import delete_user_data, purge_if_due
+from backend.core.rate_limit import limit_ai, limit_default, limit_guest_issue, limit_upload
 from backend.security.guest import (
     delete_guest_data,
     is_guest_user_key,
     issue_guest_token,
-    purge_expired_guest_data,
 )
 from backend.security.auth import (
     get_current_user_id,
@@ -60,19 +62,16 @@ router = APIRouter(tags=["Tax"])
 # 1. Tax Session Endpoints
 # ============================================================================
 
-@router.post("/auth/guest", summary="게스트(로그인 없이 둘러보기) 전용 토큰 발급")
+@router.post("/auth/guest", summary="게스트(로그인 없이 둘러보기) 전용 토큰 발급", dependencies=[Depends(limit_guest_issue)])
 def issue_guest(db: Session = Depends(get_db)) -> Dict[str, Any]:
     """게스트마다 고유 식별자와 서버 서명 토큰을 발급한다 (게스트끼리 세션·자료를 공유하지 않음).
-    발급할 때 만료된 게스트의 서버 자료를 함께 정리한다.
+    발급할 때 보존 기간이 지난 서버 자료(만료 게스트 포함)를 함께 정리한다 (1시간에 한 번).
     """
-    try:
-        purge_expired_guest_data(db)
-    except Exception:
-        db.rollback()
+    purge_if_due(db)
     return issue_guest_token()
 
 
-@router.delete("/auth/guest", summary="현재 게스트의 서버 자료 즉시 삭제")
+@router.delete("/auth/guest", summary="현재 게스트의 서버 자료 즉시 삭제", dependencies=[Depends(limit_default)])
 def delete_guest(
     current_user_id: Optional[str] = Depends(get_current_user_id),
     db: Session = Depends(get_db),
@@ -83,8 +82,34 @@ def delete_guest(
     return {"deleted_sessions": delete_guest_data(db, current_user_id)}
 
 
-@router.post("/sessions", response_model=SessionResponse, summary="신규 연말정산 세션 생성")
-@router.post("/tax/sessions", response_model=SessionResponse, summary="신규 연말정산 세션 생성 (alias)")
+@router.delete("/sessions/{session_id}", summary="내 세션과 그 서버 자료 삭제", dependencies=[Depends(limit_default)])
+@router.delete("/tax/sessions/{session_id}", summary="내 세션 삭제 (alias)", dependencies=[Depends(limit_default)])
+def delete_session(
+    session_id: str,
+    current_user_id: Optional[str] = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """세션 소유자만 삭제할 수 있으며 문서·입력·결과·감사로그가 함께 삭제된다."""
+    session = verify_session_owner_manual(session_id, current_user_id, db)
+    db.delete(session)
+    db.commit()
+    return {"deleted_sessions": 1}
+
+
+@router.delete("/me/data", summary="내 서버 자료 전체 삭제", dependencies=[Depends(limit_default)])
+def delete_my_data(
+    current_user_id: Optional[str] = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """로그인 사용자·게스트 모두 자기 서버 자료(모든 세션)를 즉시 지울 수 있다."""
+    if not current_user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="로그인하거나 '로그인 없이 둘러보기'로 시작해 주세요.")
+    return {"deleted_sessions": delete_user_data(db, current_user_id)}
+
+
+@router.post("/sessions", response_model=SessionResponse, summary="신규 연말정산 세션 생성", dependencies=[Depends(limit_default)])
+@router.post("/tax/sessions", response_model=SessionResponse, summary="신규 연말정산 세션 생성 (alias)", dependencies=[Depends(limit_default)])
 def create_session(
     request: SessionCreateRequest,
     current_user_id: Optional[str] = Depends(get_current_user_id),
@@ -92,6 +117,7 @@ def create_session(
 ) -> SessionResponse:
     """단일 사용자의 2025 귀속 연말정산 작업을 위한 세션을 발급합니다.
     """
+    purge_if_due(db)
     svc = TaxSessionService(db)
     # 세션 소유자는 인증 토큰 기준으로만 정한다 (요청 본문의 user_id는 개발 환경 하위 호환용)
     is_production = str(getattr(settings, "ENVIRONMENT", "")).lower() == "production"
@@ -120,8 +146,8 @@ def create_session(
     )
 
 
-@router.get("/sessions/{session_id}", response_model=SessionResponse, summary="세션 상태 및 진행 단계 조회")
-@router.get("/tax/sessions/{session_id}", response_model=SessionResponse, summary="세션 상태 및 진행 단계 조회 (alias)")
+@router.get("/sessions/{session_id}", response_model=SessionResponse, summary="세션 상태 및 진행 단계 조회", dependencies=[Depends(limit_default)])
+@router.get("/tax/sessions/{session_id}", response_model=SessionResponse, summary="세션 상태 및 진행 단계 조회 (alias)", dependencies=[Depends(limit_default)])
 def get_session(
     session_id: str,
     session: TaxSession = Depends(verify_session_owner),
@@ -141,8 +167,8 @@ def get_session(
     )
 
 
-@router.put("/sessions/{session_id}/inputs", response_model=SessionInputsResponse, summary="화면 입력 자료(근무지·부양가족·공제) 저장")
-@router.put("/tax/sessions/{session_id}/inputs", response_model=SessionInputsResponse, summary="화면 입력 자료 저장 (alias)")
+@router.put("/sessions/{session_id}/inputs", response_model=SessionInputsResponse, summary="화면 입력 자료(근무지·부양가족·공제) 저장", dependencies=[Depends(limit_default)])
+@router.put("/tax/sessions/{session_id}/inputs", response_model=SessionInputsResponse, summary="화면 입력 자료 저장 (alias)", dependencies=[Depends(limit_default)])
 def save_session_inputs(
     session_id: str,
     request: SessionInputsRequest,
@@ -156,6 +182,7 @@ def save_session_inputs(
 
     session = verify_session_owner_manual(session_id, current_user_id, db)
     sid = session.id
+    session.updated_at = datetime.now(timezone.utc)  # 마지막 사용 시각 (보존 기간 기준)
     db.query(WorkplaceIncome).filter(WorkplaceIncome.session_id == sid).delete()
     db.query(Dependent).filter(Dependent.session_id == sid).delete()
     db.query(ExpenseDeduction).filter(ExpenseDeduction.session_id == sid).delete()
@@ -191,8 +218,8 @@ def save_session_inputs(
 # 2. Document Upload Endpoint (POST /upload & POST /tax/upload)
 # ============================================================================
 
-@router.post("/upload", response_model=List[DocumentUploadResponse], summary="PDF 문서 업로드 및 마스킹")
-@router.post("/tax/upload", response_model=List[DocumentUploadResponse], summary="PDF 문서 업로드 및 마스킹 (alias)")
+@router.post("/upload", response_model=List[DocumentUploadResponse], summary="PDF 문서 업로드 및 마스킹", dependencies=[Depends(limit_upload)])
+@router.post("/tax/upload", response_model=List[DocumentUploadResponse], summary="PDF 문서 업로드 및 마스킹 (alias)", dependencies=[Depends(limit_upload)])
 async def upload_documents(
     files: List[UploadFile] = File(..., description="업로드할 연말정산 PDF 파일 목록"),
     session_id: Optional[str] = Form(None, description="소속 정산 세션 ID (미지정 시 신규 자동발급)"),
@@ -208,8 +235,10 @@ async def upload_documents(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="로그인하거나 '로그인 없이 둘러보기'로 시작해 주세요.",
             )
-        new_session = session_svc.create_session(user_id=current_user_id)
-        target_session_id = str(new_session.id)
+        # 업로드마다 새 세션을 만들지 않고, 요청자의 가장 최근 세션을 이어서 쓴다 (서버 자료 누적 방지)
+        purge_if_due(db)
+        latest = session_svc.get_latest_session_for_user(current_user_id)
+        target_session_id = str((latest or session_svc.create_session(user_id=current_user_id)).id)
     else:
         # 기존 세션 소유자 인가 검증
         verify_session_owner_manual(session_id, current_user_id, db)
@@ -262,9 +291,9 @@ async def upload_documents(
 # 3. Document OCR & Classification Endpoint (POST /ocr & POST /tax/classify)
 # ============================================================================
 
-@router.post("/ocr", response_model=DocumentOCRResponse, summary="문서 OCR 텍스트 분석 및 4종 분류")
-@router.post("/tax/ocr", response_model=DocumentOCRResponse, summary="문서 OCR 분석 (alias)")
-@router.post("/tax/classify", response_model=DocumentOCRResponse, summary="문서 4종 분류 (alias)")
+@router.post("/ocr", response_model=DocumentOCRResponse, summary="문서 OCR 텍스트 분석 및 4종 분류", dependencies=[Depends(limit_upload)])
+@router.post("/tax/ocr", response_model=DocumentOCRResponse, summary="문서 OCR 분석 (alias)", dependencies=[Depends(limit_upload)])
+@router.post("/tax/classify", response_model=DocumentOCRResponse, summary="문서 4종 분류 (alias)", dependencies=[Depends(limit_upload)])
 def ocr_and_classify_document(
     request: Optional[DocumentOCRRequest] = None,
     current_user_id: Optional[str] = Depends(get_current_user_id),
@@ -307,8 +336,8 @@ def ocr_and_classify_document(
 # 4. Validation Endpoint (POST /validate & POST /tax/validate)
 # ============================================================================
 
-@router.post("/validate", response_model=ValidationResponse, summary="부양가족 적격성 및 중도이직 근무지 합산 검증")
-@router.post("/tax/validate", response_model=ValidationResponse, summary="부양가족 및 중도이직 검증 (alias)")
+@router.post("/validate", response_model=ValidationResponse, summary="부양가족 적격성 및 중도이직 근무지 합산 검증", dependencies=[Depends(limit_default)])
+@router.post("/tax/validate", response_model=ValidationResponse, summary="부양가족 및 중도이직 검증 (alias)", dependencies=[Depends(limit_default)])
 def validate_tax_data(
     request: ValidationRequest,
     current_user_id: Optional[str] = Depends(get_current_user_id),
@@ -348,8 +377,8 @@ def validate_tax_data(
 # 5. Tax Calculation Endpoint (POST /calculate & POST /tax/calculate)
 # ============================================================================
 
-@router.post("/calculate", response_model=TaxCalculateResponse, summary="2025 귀속 세액 정밀 계산 및 감사 추적 생성")
-@router.post("/tax/calculate", response_model=TaxCalculateResponse, summary="2025 세액 정밀 계산 (alias)")
+@router.post("/calculate", response_model=TaxCalculateResponse, summary="2025 귀속 세액 정밀 계산 및 감사 추적 생성", dependencies=[Depends(limit_default)])
+@router.post("/tax/calculate", response_model=TaxCalculateResponse, summary="2025 세액 정밀 계산 (alias)", dependencies=[Depends(limit_default)])
 def calculate_tax(
     request: TaxCalculateRequest,
     current_user_id: Optional[str] = Depends(get_current_user_id),
@@ -358,7 +387,9 @@ def calculate_tax(
     """2025 귀속 소득세법을 완전히 적용하여 과세표준, 산출세액, 세액공제 및 차감징수세액을 계산하고 Audit Trail을 영속화합니다.
     """
     # 세션 소유자 인가 가드
-    verify_session_owner_manual(request.session_id, current_user_id, db)
+    sess = verify_session_owner_manual(request.session_id, current_user_id, db)
+    sess.updated_at = datetime.now(timezone.utc)  # 마지막 사용 시각 (보존 기간 기준)
+    db.commit()
 
     calc_svc = TaxCalculationService(db)
     try:
@@ -391,8 +422,8 @@ def calculate_tax(
 # 6. RAG Search Endpoint (POST /rag/search & POST /tax/rag/explain)
 # ============================================================================
 
-@router.post("/rag/search", response_model=RAGSearchResponse, summary="국세청 가이드 RAG 질의응답")
-@router.post("/tax/rag/search", response_model=RAGSearchResponse, summary="국세청 가이드 RAG 검색 (alias)")
+@router.post("/rag/search", response_model=RAGSearchResponse, summary="국세청 가이드 RAG 질의응답", dependencies=[Depends(limit_ai)])
+@router.post("/tax/rag/search", response_model=RAGSearchResponse, summary="국세청 가이드 RAG 검색 (alias)", dependencies=[Depends(limit_ai)])
 def search_rag_guideline(request: RAGSearchRequest) -> RAGSearchResponse:
     """국세청 '2025년 귀속 연말정산 신고안내' 책자 및 세법 가이드를 기반으로 출처 페이지를 명시한 해설을 제공합니다.
     """
@@ -408,8 +439,8 @@ def search_rag_guideline(request: RAGSearchRequest) -> RAGSearchResponse:
     )
 
 
-@router.post("/rag/explain", response_model=ExplanationDTO, summary="Tax Engine 결과 기반 국세청 출처 명시 AI 해설")
-@router.post("/tax/rag/explain", response_model=ExplanationDTO, summary="국세청 출처 명시 AI 해설 (alias)")
+@router.post("/rag/explain", response_model=ExplanationDTO, summary="Tax Engine 결과 기반 국세청 출처 명시 AI 해설", dependencies=[Depends(limit_ai)])
+@router.post("/tax/rag/explain", response_model=ExplanationDTO, summary="국세청 출처 명시 AI 해설 (alias)", dependencies=[Depends(limit_ai)])
 def explain_tax_result(
     request: TaxExplanationRequest,
     current_user_id: Optional[str] = Depends(get_current_user_id),
@@ -449,8 +480,8 @@ def explain_tax_result(
 # 7. Final Result Endpoint (GET /result/{id} & GET /tax/result/{id})
 # ============================================================================
 
-@router.get("/result/{identifier}", response_model=TaxResultDetailResponse, summary="최종 정산 결과 상세 조회")
-@router.get("/tax/result/{identifier}", response_model=TaxResultDetailResponse, summary="최종 정산 결과 상세 조회 (alias)")
+@router.get("/result/{identifier}", response_model=TaxResultDetailResponse, summary="최종 정산 결과 상세 조회", dependencies=[Depends(limit_default)])
+@router.get("/tax/result/{identifier}", response_model=TaxResultDetailResponse, summary="최종 정산 결과 상세 조회 (alias)", dependencies=[Depends(limit_default)])
 def get_tax_result(
     identifier: str,
     current_user_id: Optional[str] = Depends(get_current_user_id),
@@ -497,8 +528,8 @@ def get_tax_result(
 # 8. Audit Log Endpoint (GET /audit/{id} & GET /tax/audit/{id})
 # ============================================================================
 
-@router.get("/audit/{identifier}", response_model=AuditLogResponse, summary="세션/결과별 전체 감사 로그(Audit Trail) 조회")
-@router.get("/tax/audit/{identifier}", response_model=AuditLogResponse, summary="감사 로그 조회 (alias)")
+@router.get("/audit/{identifier}", response_model=AuditLogResponse, summary="세션/결과별 전체 감사 로그(Audit Trail) 조회", dependencies=[Depends(limit_default)])
+@router.get("/tax/audit/{identifier}", response_model=AuditLogResponse, summary="감사 로그 조회 (alias)", dependencies=[Depends(limit_default)])
 def get_audit_trail(
     identifier: str,
     current_user_id: Optional[str] = Depends(get_current_user_id),
@@ -527,8 +558,8 @@ def get_audit_trail(
 # 9. Additional Assistant & Report Endpoints
 # ============================================================================
 
-@router.post("/checklist", response_model=ChecklistResponse, summary="누락 방지 자가진단 질문 생성")
-@router.post("/tax/checklist", response_model=ChecklistResponse, summary="자가진단 질문 생성 (alias)")
+@router.post("/checklist", response_model=ChecklistResponse, summary="누락 방지 자가진단 질문 생성", dependencies=[Depends(limit_default)])
+@router.post("/tax/checklist", response_model=ChecklistResponse, summary="자가진단 질문 생성 (alias)", dependencies=[Depends(limit_default)])
 def get_checklist() -> ChecklistResponse:
     """누락 방지 Boolean 자가진단 질문 리스트 생성
     """
@@ -561,8 +592,8 @@ def get_checklist() -> ChecklistResponse:
     return ChecklistResponse(questions=questions)
 
 
-@router.get("/report/pdf/{session_id}", summary="연말정산 결과지 PDF 다운로드")
-@router.get("/tax/report/pdf/{session_id}", summary="연말정산 결과지 PDF 다운로드 (alias)")
+@router.get("/report/pdf/{session_id}", summary="연말정산 결과지 PDF 다운로드", dependencies=[Depends(limit_default)])
+@router.get("/tax/report/pdf/{session_id}", summary="연말정산 결과지 PDF 다운로드 (alias)", dependencies=[Depends(limit_default)])
 def download_pdf_report(
     session_id: str,
     session: TaxSession = Depends(verify_session_owner),

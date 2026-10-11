@@ -119,6 +119,11 @@ api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const config = error?.config;
+    // 요청 횟수 제한(429): 서버가 알려 준 안내 문구를 화면에서 그대로 쓸 수 있게 담아 둔다
+    if (error?.response?.status === 429) {
+      error.userMessage = error.response.data?.detail || '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.';
+      return Promise.reject(error);
+    }
     if (error?.response?.status === 401 && config?._usedGuestToken && !config._guestRetried) {
       config._guestRetried = true;
       discardGuestIdentity({ deleteServerData: false });
@@ -175,6 +180,16 @@ export const taxService = {
   // 화면 계산값(수치만) 기반 AI 해설 — 세션 없이 /rag/explain 호출
   explainResult: async ({ category, query, payload }) => {
     const response = await api.post('/tax/rag/explain', { category, query, payload });
+    return response.data;
+  },
+  // 내 세션 하나 삭제 (문서·입력·결과·감사로그 포함)
+  deleteSession: async (sessionId) => {
+    const response = await api.delete(`/tax/sessions/${sessionId}`);
+    return response.data;
+  },
+  // 서버에 저장된 내 자료 전체 삭제
+  deleteMyServerData: async () => {
+    const response = await api.delete('/me/data');
     return response.data;
   },
   searchRag: async (query, section) => {

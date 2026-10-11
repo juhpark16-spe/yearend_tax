@@ -17,18 +17,17 @@ import backend.models  # 모든 ORM 모델을 Base.metadata에 등록
 config = context.config
 
 # Interpret the config file for Python logging.
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+# 앱 시작 시 코드에서 실행할 때는(configure_logger=False) 서버 로그 설정을 덮어쓰지 않는다
+if config.config_file_name is not None and config.attributes.get("configure_logger", True):
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # target metadata for 'autogenerate' support
 target_metadata = Base.metadata
 
 # database URL 설정
-db_url = settings.DATABASE_URL
-if db_url.startswith("sqlite"):
-    config.set_main_option("sqlalchemy.url", db_url)
-else:
-    config.set_main_option("sqlalchemy.url", db_url)
+# database URL: 코드에서 지정한 값(테스트 등)이 있으면 그것을, 없으면 앱 설정(.env)의 DATABASE_URL 사용
+db_url = config.attributes.get("database_url") or settings.DATABASE_URL
+config.set_main_option("sqlalchemy.url", db_url.replace("%", "%%"))
 
 
 def run_migrations_offline() -> None:

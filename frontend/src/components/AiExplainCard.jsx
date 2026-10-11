@@ -50,7 +50,7 @@ export default function AiExplainCard({ taxResult }) {
       });
       setResult(data);
     } catch (e) {
-      setError('해설 서버에 연결하지 못했습니다. 백엔드 서버가 실행 중인지 확인해 주세요.');
+      setError(e?.userMessage || '해설 서버에 연결하지 못했습니다. 백엔드 서버가 실행 중인지 확인해 주세요.');
     } finally {
       setLoading(false);
     }
