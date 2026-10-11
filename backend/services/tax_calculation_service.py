@@ -1132,35 +1132,40 @@ class TaxCalculationService:
         tax_credit_pension_account_before_cap = math.floor(pension_account_total * pension_rate)
 
         # ---------------------------------------------------------------------
-        # 세액감면·공제 적용순서 (화면 엔진 taxCalculator.js와 동일)
-        #   세액감면 → 근로소득 → 혼인 → 자녀 → 보장성보험 → 의료비 → 교육비 → 정치자금 → 고향사랑
-        #   → 월세 → 특례기부 → 우리사주기부 → 일반기부 → 연금계좌(후순위) → 표준세액공제
+        # 세액감면·공제 적용순서 (소득세법 제60조, 원천세과-830, 2023.09.13.)
+        #   ① 세액감면(중소기업 취업자)
+        #   ② 이월공제 불가 세액공제: 근로소득 → 혼인 → 자녀 → 보장성보험 → 의료비 → 교육비
+        #      → 정치자금 → 고향사랑 → 우리사주조합 → 표준세액공제 → 월세
+        #   ③ 이월공제 가능 세액공제(소득세법 제61조, 10년): 특례 → 일반(종교단체 외) → 일반(종교단체)
+        #   ④ 연금계좌: 감면·공제 합계가 산출세액을 초과하면 그 초과액을 한도로 공제받지 않은 것으로 봄
         # 각 공제는 앞선 감면·공제를 차감하고 남은 산출세액 범위 안에서만 적용된다.
+        # (화면 엔진 taxCalculator.js와 동일한 순서)
         # ---------------------------------------------------------------------
         uses_special = standard_tax_credit == 0
         credit_order = [
-            ("세액감면(중소기업 취업자)", tax_reduction_sme),
-            ("근로소득세액공제", tax_credit_earned_income),
-            ("혼인세액공제", tax_credit_marriage),
-            ("자녀세액공제", tax_credit_child),
-            ("보장성보험료", ins_credit if uses_special else 0),
-            ("의료비", med_credit if uses_special else 0),
-            ("교육비", edu_credit if uses_special else 0),
-            ("정치자금기부금", don_calc["political"]),
-            ("고향사랑기부금", don_calc["hometown"]),
-            ("월세액", tax_credit_monthly_rent),
-            ("특례기부금", don_calc["special"] if uses_special else 0),
-            ("우리사주조합기부금", don_calc["employee_stock"]),
-            ("일반기부금", (don_calc["general"] + don_calc["religious"]) if uses_special else 0),
-            ("연금계좌", tax_credit_pension_account_before_cap),
-            ("표준세액공제", standard_tax_credit),
+            ("세액감면(중소기업 취업자)", tax_reduction_sme, "세액감면"),
+            ("근로소득세액공제", tax_credit_earned_income, "이월공제 불가"),
+            ("혼인세액공제", tax_credit_marriage, "이월공제 불가"),
+            ("자녀세액공제", tax_credit_child, "이월공제 불가"),
+            ("보장성보험료", ins_credit if uses_special else 0, "이월공제 불가"),
+            ("의료비", med_credit if uses_special else 0, "이월공제 불가"),
+            ("교육비", edu_credit if uses_special else 0, "이월공제 불가"),
+            ("정치자금기부금", don_calc["political"], "이월공제 불가"),
+            ("고향사랑기부금", don_calc["hometown"], "이월공제 불가"),
+            ("우리사주조합기부금", don_calc["employee_stock"], "이월공제 불가"),
+            ("표준세액공제", standard_tax_credit, "이월공제 불가"),
+            ("월세액", tax_credit_monthly_rent, "이월공제 불가"),
+            ("특례기부금", don_calc["special"] if uses_special else 0, "이월공제 가능"),
+            ("일반기부금(종교단체 외)", don_calc["general"] if uses_special else 0, "이월공제 가능"),
+            ("일반기부금(종교단체)", don_calc["religious"] if uses_special else 0, "이월공제 가능"),
+            ("연금계좌", tax_credit_pension_account_before_cap, "초과분 미공제 간주"),
         ]
         remaining_tax = max(0, calculated_tax)
         credit_allocation = []
-        for label, amount in credit_order:
+        for label, amount, group in credit_order:
             applied = min(max(0, int(amount or 0)), remaining_tax)
             remaining_tax -= applied
-            credit_allocation.append({"label": label, "computed": int(amount or 0), "applied": applied})
+            credit_allocation.append({"label": label, "computed": int(amount or 0), "applied": applied, "group": group})
         applied_map = {c["label"]: c["applied"] for c in credit_allocation}
         tax_credit_pension_account = applied_map["연금계좌"]
         available_tax_after_reduction = max(0, calculated_tax - tax_reduction_sme)
@@ -1204,8 +1209,10 @@ class TaxCalculationService:
             },
         })
 
-        # 세액감면·공제 적용순서: 세액감면 → 근로소득 → 결혼 → 자녀 → 보장성보험 → 의료비 → 교육비 → 기부(정치·고향)
-        #   → (표준) → 납세조합 → 주택차입금 → 월세 → 특례·우리사주·일반기부 → 외국납부 → 연금계좌(후순위)
+        # 산출세액 부족으로 공제받지 못한 특례·일반기부금 세액은 다음 과세기간 이월공제 대상(10년)
+        donation_carryover_credit = sum(
+            c["computed"] - c["applied"] for c in credit_allocation if c["group"] == "이월공제 가능"
+        )
 
         # 적용순서대로 배분한 실제 적용액 합계 (세액감면 제외분이 세액공제 합계)
         final_tax_credits = sum(c["applied"] for c in credit_allocation) - applied_map["세액감면(중소기업 취업자)"]
@@ -1219,12 +1226,20 @@ class TaxCalculationService:
             "base_value": calculated_tax,
             "calculated_amount": final_tax_credits + applied_map["세액감면(중소기업 취업자)"],
             "output_snapshot": {"applied": {c["label"]: c["applied"] for c in credit_allocation},
-                                "order": [c["label"] for c in credit_allocation]},
-            "legal_formula": "산출세액 범위 안에서 세액감면 → 근로소득 → 혼인 → 자녀 → 보험료 → 의료비 → 교육비 → 정치자금 → 고향사랑 → 월세 → 특례·우리사주·일반기부 → 연금계좌 → 표준세액공제 순으로 차감",
-            "legal_basis": "소득세법 제60조(세액공제 적용의 순서 등), 조세특례제한법 제127조",
+                                "order": [c["label"] for c in credit_allocation],
+                                "groups": {c["label"]: c["group"] for c in credit_allocation},
+                                "donation_carryover_credit": donation_carryover_credit},
+            "legal_formula": (
+                "산출세액 범위 안에서 ① 세액감면 → ② 이월공제 불가 세액공제(근로소득 → 혼인 → 자녀 → 보험료 → 의료비 → 교육비 "
+                "→ 정치자금 → 고향사랑 → 우리사주 → 표준세액공제 → 월세) → ③ 이월공제 가능 세액공제(특례 → 일반(종교단체 외) "
+                "→ 일반(종교단체) 기부금) → ④ 연금계좌(초과분은 공제받지 않은 것으로 봄) 순으로 차감"
+            ),
+            "legal_basis": "소득세법 제60조(세액공제 적용의 순서 등), 소득세법 제61조(기부금 이월공제), 원천세과-830(2023.09.13.), 조세특례제한법 제127조",
             "explanation": (
                 "산출세액이 부족해 일부 공제가 다 적용되지 못했습니다: "
                 + ", ".join(f"{c['label']} {c['computed'] - c['applied']:,}원" for c in credit_allocation if c["applied"] < c["computed"])
+                + (f" (특례·일반기부금 미공제 세액 {donation_carryover_credit:,}원은 다음 과세기간부터 10년간 이월공제 대상)"
+                   if donation_carryover_credit > 0 else "")
                 if any(c["applied"] < c["computed"] for c in credit_allocation)
                 else (
                     "모든 세액감면·공제가 산출세액 범위 안에서 전액 적용되었습니다."
@@ -1232,7 +1247,7 @@ class TaxCalculationService:
                     else "해당 없음: 적용할 세액감면·공제가 없습니다 (0원)."
                 )
             ),
-            "metadata_json": {"remaining_tax": remaining_tax},
+            "metadata_json": {"remaining_tax": remaining_tax, "donation_carryover_credit": donation_carryover_credit},
         })
 
         # ---------------------------------------------------------------------

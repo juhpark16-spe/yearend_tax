@@ -217,6 +217,7 @@ export function compareCredits(jsResult = {}, auditLogs = [], server = {}) {
  * 세액감면·공제 적용순서별 실제 적용액 비교 (산출세액 한도 배분)
  * - 두 엔진 모두 같은 순서(세액감면 → 근로소득 → … → 연금계좌 → 표준세액공제)로 남은 산출세액 안에서 차감한다.
  */
+// 소득세법 제60조 적용순서: ① 세액감면 → ② 이월공제 불가 → ③ 이월공제 가능(특례·일반기부금) → ④ 연금계좌
 export const CREDIT_APPLY_ORDER = [
   ['세액감면(중소기업 취업자)', 'appliedSmeReduction'],
   ['근로소득세액공제', 'appliedEarnedIncomeCredit'],
@@ -227,13 +228,21 @@ export const CREDIT_APPLY_ORDER = [
   ['교육비', 'appliedEducationCredit'],
   ['정치자금기부금', 'appliedPoliticalDonationCredit'],
   ['고향사랑기부금', 'appliedHometownDonationCredit'],
+  ['우리사주조합기부금', 'appliedEmployeeStockDonationCredit'],
+  ['표준세액공제', 'standardCredit'],
   ['월세액', 'appliedRentCredit'],
   ['특례기부금', 'appliedSpecialDonationCredit'],
-  ['우리사주조합기부금', 'appliedEmployeeStockDonationCredit'],
-  ['일반기부금', 'appliedGeneralDonationCredit'],
+  ['일반기부금(종교단체 외)', 'appliedGeneralNonReligiousDonationCredit'],
+  ['일반기부금(종교단체)', 'appliedGeneralReligiousDonationCredit'],
   ['연금계좌', 'appliedPensionCredit'],
-  ['표준세액공제', 'standardCredit'],
 ];
+
+export function creditGroupOf(label) {
+  if (label.startsWith('세액감면')) return '① 세액감면';
+  if (label === '연금계좌') return '④ 초과분 미공제';
+  if (label === '특례기부금' || label.startsWith('일반기부금')) return '③ 이월 가능';
+  return '② 이월 불가';
+}
 
 export function compareAppliedCredits(jsResult = {}, auditLogs = []) {
   const tc = jsResult.taxCredits || {};
@@ -242,6 +251,6 @@ export function compareAppliedCredits(jsResult = {}, auditLogs = []) {
   return CREDIT_APPLY_ORDER.map(([label, jsKey], idx) => {
     const js = Math.round(Number(tc[jsKey]) || 0);
     const server = Math.round(Number(applied[label]) || 0);
-    return { order: idx + 1, label, js, server, same: js === server };
+    return { order: idx + 1, label, group: creditGroupOf(label), js, server, same: js === server };
   });
 }

@@ -146,7 +146,7 @@ export default function ServerCrossCheckCard({ jsResult, userName = '' }) {
           <div className="pt-1">
             <div className="flex items-end justify-between gap-2 px-1 pb-1.5">
               <p className="text-[12.5px] font-extrabold text-slate-800">산출세액 한도 배분 (적용 순서별 실제 적용액)</p>
-              <p className="text-[10.5px] text-slate-400">두 엔진 동일 순서 · 0원 항목 생략</p>
+              <p className="text-[10.5px] text-slate-400">소득세법 제60조 순서 · 0원 항목 생략</p>
             </div>
             <div className={`rounded-xl px-3 py-2 mb-2 text-xs font-bold border ${appliedDiffs.length === 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
               {appliedDiffs.length === 0
@@ -160,7 +160,7 @@ export default function ServerCrossCheckCard({ jsResult, userName = '' }) {
               {visibleAppliedRows.map((r) => (
                 <div key={r.label} className="grid grid-cols-[28px_1.2fr_1fr_1fr_44px] px-3 py-2 text-xs border-t border-slate-100">
                   <span className="text-slate-400 font-mono">{r.order}</span>
-                  <span className="font-semibold text-slate-700">{r.label}</span>
+                  <span className="font-semibold text-slate-700">{r.label}{r.group && <span className="block text-[10px] font-medium text-slate-400">{r.group}</span>}</span>
                   <span className="text-right font-mono text-slate-900">{won(r.js)}</span>
                   <span className="text-right font-mono text-slate-900">{won(r.server)}</span>
                   <span className={`text-center font-bold ${r.same ? 'text-emerald-600' : 'text-amber-600'}`}>{r.same ? '일치' : '차이'}</span>

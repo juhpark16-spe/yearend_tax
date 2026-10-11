@@ -188,8 +188,20 @@ def test_separate_donation_credit_kept_with_standard_credit(db):
     assert sep.calculated_amount == 90_909
 
 
-def test_credit_allocation_follows_screen_engine_order(db):
-    # 산출세액보다 공제가 많을 때 앞 순서(근로소득·보험료·의료비) 먼저, 연금계좌는 후순위로 잘린다
+LEGAL_CREDIT_ORDER = [
+    "세액감면(중소기업 취업자)",
+    # 이월공제 불가
+    "근로소득세액공제", "혼인세액공제", "자녀세액공제", "보장성보험료", "의료비", "교육비",
+    "정치자금기부금", "고향사랑기부금", "우리사주조합기부금", "표준세액공제", "월세액",
+    # 이월공제 가능 (소득세법 제61조)
+    "특례기부금", "일반기부금(종교단체 외)", "일반기부금(종교단체)",
+    # 초과분 미공제 간주
+    "연금계좌",
+]
+
+
+def test_credit_allocation_follows_legal_order(db):
+    # 소득세법 제60조: 감면 → 이월공제 불가 → 이월공제 가능 → 연금계좌(초과분 미공제 간주)
     ts = _session(db, 25_000_000, prepaid=0, expense={
         "personal_pension_saving": 6_000_000,
         "medical_general": 20_000_000,
@@ -197,14 +209,35 @@ def test_credit_allocation_follows_screen_engine_order(db):
     })
     result, logs = TaxCalculationService(db).calculate_and_save(session_id=str(ts.id))
     alloc = _step(logs, 5, "세액감면·공제 적용순서별 배분")
-    order = alloc.output_snapshot["order"]
-    assert order[:4] == ["세액감면(중소기업 취업자)", "근로소득세액공제", "혼인세액공제", "자녀세액공제"]
-    assert order[-2:] == ["연금계좌", "표준세액공제"]
+    assert alloc.output_snapshot["order"] == LEGAL_CREDIT_ORDER
     applied = alloc.output_snapshot["applied"]
     assert sum(applied.values()) == result.calculated_tax          # 산출세액 전액 소진
-    assert applied["연금계좌"] < alloc.input_snapshot["연금계좌"]     # 후순위라 일부만 적용
     assert applied["보장성보험료"] == alloc.input_snapshot["보장성보험료"]
     assert applied["의료비"] < alloc.input_snapshot["의료비"]            # 의료비에서 산출세액 소진
-    assert applied["연금계좌"] == 0
+    assert applied["연금계좌"] == 0                                    # 초과분은 연금계좌에서 미공제
     assert result.final_decision_tax == 0
     assert result.tax_credit_pension_account == applied["연금계좌"]
+
+
+def test_carryover_donation_applied_after_non_carryover_and_reported(db):
+    # 이월공제 가능한 특례·일반기부금은 이월 불가 공제 뒤에 적용되고, 못 받은 세액은 이월 대상으로 표시
+    ts = _session(db, 25_000_000, prepaid=0, expense={
+        "personal_pension_saving": 3_000_000,
+        "medical_general": 2_000_000,
+        "raw_details": {"donation_details": [
+            {"type": "특례기부금", "amount": 2_000_000},
+            {"type": "일반기부금(종교단체)", "amount": 1_000_000},
+        ]},
+    })
+    result, logs = TaxCalculationService(db).calculate_and_save(session_id=str(ts.id))
+    alloc = _step(logs, 5, "세액감면·공제 적용순서별 배분")
+    applied, computed = alloc.output_snapshot["applied"], alloc.input_snapshot
+    groups = alloc.output_snapshot["groups"]
+    assert groups["특례기부금"] == "이월공제 가능" and groups["우리사주조합기부금"] == "이월공제 불가"
+    assert applied["의료비"] == computed["의료비"]                       # 이월 불가 공제 먼저 전액
+    assert applied["연금계좌"] == 0
+    carry = sum(computed[k] - applied[k] for k in ("특례기부금", "일반기부금(종교단체 외)", "일반기부금(종교단체)"))
+    assert carry > 0
+    assert alloc.output_snapshot["donation_carryover_credit"] == carry
+    assert "이월공제 대상" in alloc.explanation
+    assert result.final_decision_tax == 0

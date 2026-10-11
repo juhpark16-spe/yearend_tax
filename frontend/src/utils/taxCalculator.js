@@ -1562,11 +1562,14 @@ export function calculateSettlementTax({
     if (hasMarriage) marriageCredit = 500000;
   }
 
-  // ===== 세액감면·공제 적용순서 =====
-  // 세액감면 → 근로소득세액공제 → 결혼세액공제 → 자녀세액공제 → 보장성보험료세액공제
-  // → 의료비세액공제 → 교육비세액공제 → 정치자금기부세액공제 → 고향사랑기부금세액공제
-  // → (표준세액공제) → 납세조합공제 → 주택차입금공제 → 월세액세액공제
-  // → 특례·우리사주·일반기부금세액공제 → 외국납부세액공제 → 연금계좌세액공제(후순위 공제)
+  // ===== 세액감면·공제 적용순서 (소득세법 제60조, 원천세과-830, 2023.09.13.) =====
+  // ① 세액감면(중소기업 취업자 소득세 감면)
+  // ② 이월공제가 인정되지 않는 세액공제
+  //    근로소득 → 혼인 → 자녀 → 보장성보험료 → 의료비 → 교육비 → 정치자금기부금 → 고향사랑기부금
+  //    → 우리사주조합기부금 → 표준세액공제 → 월세액
+  // ③ 이월공제가 인정되는 세액공제 (소득세법 제61조: 특례·일반기부금, 10년 이월)
+  //    특례기부금 → 일반기부금(종교단체 외) → 일반기부금(종교단체)
+  // ④ 연금계좌세액공제: 감면·공제 합계가 산출세액을 초과하면 그 초과액을 한도로 공제받지 않은 것으로 봄
   // 각 공제는 앞선 감면·공제를 차감하고 남은 산출세액 범위 안에서만 적용된다.
   let remainingTax = Math.max(0, calculatedTax);
   const applyCredit = (amount) => {
@@ -1575,7 +1578,26 @@ export function calculateSettlementTax({
     return applied;
   };
 
+  // 표준세액공제 (13만원) 판정 — 적용순서와 무관하게 공제 전 금액으로 판정:
+  // 특별소득공제(건강·고용·주택자금), 특별세액공제(보장성보험·의료비·교육비·특례/일반기부금), 월세액공제를
+  // 신청하지 아니하거나 그 합계가 13만원에 미달하는 경우 근로자에게 유리하게 표준세액공제 적용
+  const specialCreditsTotal =
+    insuranceCredit +
+    medicalCredit +
+    educationCredit +
+    specialDonationCredit +
+    generalDonationCredit +
+    rentCredit;
+  const specialIncomeDeductions = healthInsurance + employmentInsurance + housingLoanInput;
+  let standardCreditAmount = 0;
+  if (calculatedTax > 0 && specialIncomeDeductions === 0) {
+    if (specialCreditsTotal === 0) standardCreditAmount = 130000;
+    else if (specialCreditsTotal < 130000) standardCreditAmount = 130000 - specialCreditsTotal;
+  }
+
+  // ① 세액감면
   const appliedSmeReduction = applyCredit(smeReduction);
+  // ② 이월공제 불가 세액공제
   const appliedEarnedIncomeCredit = applyCredit(earnedIncomeCredit);
   const appliedMarriageCredit = applyCredit(marriageCredit);
   const appliedChildCredit = applyCredit(childCredit);
@@ -1584,11 +1606,21 @@ export function calculateSettlementTax({
   const appliedEducationCredit = applyCredit(educationCredit);
   const appliedPoliticalDonationCredit = applyCredit(politicalDonationCredit);
   const appliedHometownDonationCredit = applyCredit(hometownDonationCredit);
-  const appliedRentCredit = applyCredit(rentCredit);
-  const appliedSpecialDonationCredit = applyCredit(specialDonationCredit);
   const appliedEmployeeStockDonationCredit = applyCredit(employeeStockDonationCredit);
-  const appliedGeneralDonationCredit = applyCredit(generalDonationCredit);
-  const appliedPensionCredit = applyCredit(pensionCreditRaw); // 연금계좌세액공제는 후순위 공제
+  const standardCredit = applyCredit(standardCreditAmount);
+  const appliedRentCredit = applyCredit(rentCredit);
+  // ③ 이월공제 가능 세액공제 (특례 → 종교단체 외 일반 → 종교단체 일반)
+  const appliedSpecialDonationCredit = applyCredit(specialDonationCredit);
+  const appliedGeneralNonReligiousDonationCredit = applyCredit(generalNonReligiousDonationCredit);
+  const appliedGeneralReligiousDonationCredit = applyCredit(generalReligiousDonationCredit);
+  const appliedGeneralDonationCredit = appliedGeneralNonReligiousDonationCredit + appliedGeneralReligiousDonationCredit;
+  // ④ 연금계좌세액공제 (초과분은 공제받지 않은 것으로 봄)
+  const appliedPensionCredit = applyCredit(pensionCreditRaw);
+
+  // 산출세액 부족으로 공제받지 못한 특례·일반기부금 세액 → 다음 과세기간 이월공제 대상(10년)
+  const donationCarryoverCredit =
+    (specialDonationCredit - appliedSpecialDonationCredit) +
+    (generalDonationCredit - appliedGeneralDonationCredit);
 
   const appliedDonationCredit =
     appliedPoliticalDonationCredit +
@@ -1596,31 +1628,6 @@ export function calculateSettlementTax({
     appliedSpecialDonationCredit +
     appliedEmployeeStockDonationCredit +
     appliedGeneralDonationCredit;
-
-  // 표준세액공제 (13만원) 적용 판정:
-  // 특별소득공제(건강·고용·주택자금), 특별세액공제(보장성보험·의료비·교육비·일반기부금), 월세액공제를
-  // 신청하지 아니하거나 그 합계가 13만원에 미달하는 경우 근로자에게 유리하게 표준세액공제(13만원) 적용
-  let standardCredit = 0;
-  let useStandardCredit = false;
-  const specialCreditsTotal =
-    appliedInsuranceCredit +
-    appliedMedicalCredit +
-    appliedEducationCredit +
-    appliedSpecialDonationCredit +
-    appliedGeneralDonationCredit +
-    appliedRentCredit;
-  const specialIncomeDeductions = healthInsurance + employmentInsurance + housingLoanInput;
-
-  if (specialCreditsTotal === 0 && specialIncomeDeductions === 0 && calculatedTax > 0) {
-    useStandardCredit = true;
-    standardCredit = applyCredit(130000);
-  } else if (specialCreditsTotal < 130000 && specialIncomeDeductions === 0 && calculatedTax > 0) {
-    const diff = 130000 - specialCreditsTotal;
-    if (remainingTax > 0) {
-      standardCredit = applyCredit(diff);
-      useStandardCredit = true;
-    }
-  }
 
   const taxCreditsTotal =
     appliedSmeReduction +
@@ -1736,7 +1743,10 @@ export function calculateSettlementTax({
       generalDonationCredit,
       appliedGeneralDonationCredit,
       generalNonReligiousDonationCredit,
+      appliedGeneralNonReligiousDonationCredit,
       generalReligiousDonationCredit,
+      appliedGeneralReligiousDonationCredit,
+      donationCarryoverCredit,
       pensionCredit: pensionCreditRaw,
       appliedPensionCredit,
       childCredit,
