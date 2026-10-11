@@ -173,3 +173,42 @@ export function compareEngines(jsResult = {}, server = {}) {
   ];
   return rows.map(([label, a, b]) => ({ label, js: Math.round(Number(a) || 0), server: Math.round(Number(b) || 0), same: Math.round(Number(a) || 0) === Math.round(Number(b) || 0) }));
 }
+
+/**
+ * 세액공제·감면 항목별 비교 (산출세액 한도 적용 전 산출액 기준)
+ * - 결정세액이 같아도 항목별 산식 차이를 찾을 수 있도록 각 공제를 한도 차감 전 금액으로 비교한다.
+ * - 백엔드 값은 /audit 감사 로그의 단계별 기록에서 읽는다.
+ */
+export function compareCredits(jsResult = {}, auditLogs = [], server = {}) {
+  const tc = jsResult.taxCredits || {};
+  const byName = (name) => (auditLogs || []).find((l) => l.step_name === name) || {};
+  const amt = (l) => Math.round(Number(l.calculated_amount ?? l.output_value ?? 0) || 0);
+  const special = byName('특별세액공제 및 표준세액공제 비교');
+  const sp = special.input_snapshot || {};
+  const separate = byName('정치자금·고향사랑·우리사주 기부금 세액공제');
+  const pension = byName('연금계좌 세액공제');
+  const pensionBeforeCap = (pension.output_snapshot || {}).tax_credit_pension_account_before_cap;
+  const rows = [
+    ['중소기업 취업자 감면', tc.smeReduction, amt(byName('중소기업 취업자 소득세 감면'))],
+    ['근로소득세액공제', tc.earnedIncomeCredit, amt(byName('근로소득 세액공제'))],
+    ['자녀세액공제', tc.childCredit, amt(byName('자녀 세액공제'))],
+    ['혼인세액공제', tc.marriageCredit, amt(byName('신혼부부 혼인 세액공제'))],
+    ['보험료', tc.insuranceCredit, sp.ins_credit],
+    ['의료비', tc.medicalCredit, sp.med_credit],
+    ['교육비', tc.educationCredit, sp.edu_credit],
+    ['기부금', tc.donationCredit, (Number(sp.don_credit) || 0) + amt(separate)],
+    ['월세액', tc.rentCredit, amt(byName('월세액 세액공제'))],
+    ['연금계좌', tc.pensionCredit, pensionBeforeCap ?? amt(pension)],
+    ['표준세액공제', tc.standardCredit, sp.standard_tax_credit],
+  ];
+  const items = rows.map(([label, a, b]) => {
+    const js = Math.round(Number(a) || 0);
+    const sv = Math.round(Number(b) || 0);
+    return { label, js, server: sv, same: js === sv };
+  });
+  // 산출세액 한도를 반영해 실제로 적용된 세액공제·감면 합계
+  const appliedJs = Math.round((Number(jsResult.calculatedTax) || 0) - (Number(jsResult.finalIncomeTax) || 0));
+  const appliedServer = Math.round((Number(server.calculated_tax) || 0) - (Number(server.final_decision_tax) || 0));
+  items.push({ label: '적용 합계 (산출세액 한도 반영)', js: appliedJs, server: appliedServer, same: appliedJs === appliedServer, total: true });
+  return items;
+}

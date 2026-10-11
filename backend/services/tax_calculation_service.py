@@ -1164,7 +1164,10 @@ class TaxCalculationService:
             },
             "base_value": pension_account_total,
             "calculated_amount": tax_credit_pension_account,
-            "output_snapshot": {"tax_credit_pension_account": tax_credit_pension_account},
+            "output_snapshot": {
+                "tax_credit_pension_account": tax_credit_pension_account,
+                "tax_credit_pension_account_before_cap": tax_credit_pension_account_before_cap,
+            },
             "legal_formula": (
                 "연금저축계좌 600만(퇴직연금 합산 900만) + min(ISA납입액×10%, 300만) 한도 내 납입액 × 15%(총급여 5,500만 초과 12%), "
                 "한도 차감순서: 퇴직연금 > 연금저축 > ISA퇴직연금 > ISA연금저축, 세액감면·공제 적용순서상 후순위 공제"

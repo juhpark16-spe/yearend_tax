@@ -54,3 +54,24 @@ def test_inputs_reject_unknown_relation(client):
     sid = client.post("/api/v1/sessions", json={"tax_year": 2025}, headers={"X-User-Id": uid}).json()["session_id"]
     bad = {**_inputs(), "dependents": [{"name": "x", "relation": "COUSIN"}]}
     assert client.put(f"/api/v1/sessions/{sid}/inputs", json=bad, headers={"X-User-Id": uid}).status_code == 422
+
+
+def test_audit_exposes_item_level_credits_for_cross_check(client):
+    """교차검증 항목별 비교에 필요한 값(한도 적용 전 연금계좌 공제 등)이 감사 로그에 기록되는지"""
+    uid = str(uuid.uuid4())
+    h = {"X-User-Id": uid}
+    sid = client.post("/api/v1/sessions", json={"tax_year": 2025}, headers=h).json()["session_id"]
+    body = _inputs(salary=30_000_000, prepaid=500_000)
+    body["expense"]["personal_pension_saving"] = 6_000_000
+    body["expense"]["medical_general"] = 5_000_000
+    client.put(f"/api/v1/sessions/{sid}/inputs", json=body, headers=h)
+    client.post("/api/v1/calculate", json={"session_id": sid}, headers=h)
+    logs = client.get(f"/api/v1/audit/{sid}", headers=h).json()["logs"]
+    names = {l["step_name"]: l for l in logs}
+    pension = names["연금계좌 세액공제"]
+    assert pension["output_snapshot"]["tax_credit_pension_account_before_cap"] == 900_000  # 600만 × 15%
+    assert pension["calculated_amount"] <= 900_000                                      # 산출세액 한도 반영
+    special = names["특별세액공제 및 표준세액공제 비교"]["input_snapshot"]
+    for key in ("ins_credit", "med_credit", "edu_credit", "don_credit", "standard_tax_credit"):
+        assert key in special
+    assert "정치자금·고향사랑·우리사주 기부금 세액공제" in names
