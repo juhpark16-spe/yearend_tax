@@ -11,7 +11,7 @@
 ### 🛡️ 핵심 개발 원칙 (Explainable AI)
 - **수식 연산의 완전한 결정론화**: 세액 계산(`Tax Engine`)에는 LLM을 일절 사용하지 않으며 순수 파이썬(Pure Python) 공식으로만 연산합니다.
 - **철저한 개인식별정보 보호 (PII)**: PDF 업로드 직후 인메모리에서 주민등록번호 뒷자리를 마스킹(`900101-1******`)하며 원본은 메모리와 DB 어디에도 남기지 않습니다.
-- **국세청 공문서 RAG**: 국세청 공식 연말정산 신고안내서 기반으로 정확한 출처(페이지)와 함께 절세 팁 및 요건을 설명합니다.
+- **국세청 공문서 RAG**: 국세청 연말정산 신고안내서를 항목별로 정리한 지식베이스(`rag_data/markdown`)를 검색해 출처(페이지)와 함께 절세 팁 및 요건을 설명합니다.
 - **투명한 감사 추적 (Audit Log)**: "왜 이 금액인가요?" 질문에 답할 수 있도록 모든 연산 단계의 중간 과정과 근거를 기록합니다.
 
 ---
@@ -45,6 +45,12 @@ flowchart LR
 
 ---
 
+### 현재 구현 범위 메모
+* 화면(④ 공제자료 입력 ~ ⑥ AI 리포트)의 예상세액·리포트는 브라우저의 `taxCalculator.js`가 백엔드와 같은 법정 수식으로 즉시 계산합니다.
+* 백엔드의 세액 엔진(`/calculate`), 감사 로그(`/audit`), AI 해설(`/rag/explain`), 부양가족 검증(`/validate`)은 구현·테스트되어 있으며 화면 연동은 다음 단계 과제입니다. 화면이 서버에 보내는 요청은 현재 PDF 업로드(`/upload`)입니다.
+
+---
+
 ## 4. 기술 스택 (Tech Stack)
 
 | 구분 | 주요 기술 및 라이브러리 |
@@ -52,8 +58,8 @@ flowchart LR
 | **Backend** | `FastAPI`, `Python 3.12`, `SQLAlchemy 2.0`, `Pydantic v2`, `SQLite / PostgreSQL`, `Alembic` |
 | **Frontend** | `React 18`, `Vite 5`, `Tailwind CSS`, `Lucide React`, `Supabase Auth`, `React.lazy (코드 분할)` |
 | **AI & RAG** | `LangChain`, `FAISS Vector Store`, `국세청 연말정산 공식 가이드라인 RAG`, `GPT-4o (설명 생성용)` |
-| **Security** | `In-Memory PII Masker`, `JWT Exp & IDOR Guard`, `Client-Side Recursive PII Sanitization` |
-| **Testing** | `Pytest` (단위/통합 테스트 74개 100% 통과) |
+| **Security** | `In-Memory PII Masker`, `Supabase JWT 서명 검증(JWKS/HS256) & IDOR Guard`, `Client-Side Recursive PII Sanitization` |
+| **Testing** | `Pytest` 단위·통합 테스트 92개 (RAG 4개는 OpenAI API·네트워크 필요) |
 
 ---
 
@@ -95,9 +101,10 @@ yearend_tax/
 │   │   ├── pdf_parser.py       # pdfplumber 기반 PDF 파서
 │   │   ├── extractor.py        # 간소화/원천징수 항목별 세부 추출기
 │   │   ├── classifier.py       # 업로드 문서 유형 분류기
-│   │   └── pii_masker.py       # 주민등록번호/주소 마스킹 엔진
+│   │   ├── nts_sections.py     # 간소화 보장성보험·교육비 섹션 구조 파서 (이름 무관 판정)
+│   │   └── pii_masker.py       # (미사용, 정리 예정) — 실제 마스킹은 security/pii_mask.py
 │   ├── security/               # 인증/인가 및 개인정보 보호
-│   │   ├── auth.py             # Supabase JWT 인증, 토큰 만료 및 IDOR 방어 가드
+│   │   ├── auth.py             # Supabase JWT 서명·만료 검증 및 IDOR 방어 가드
 │   │   └── pii_mask.py         # 민감정보 정규식 마스킹
 │   ├── services/               # 비즈니스 로직 서비스 계층
 │   │   ├── tax_calculation_service.py # 세액 계산 통합 서비스
@@ -187,7 +194,7 @@ yearend_tax/
 │       ├── tax_rates.py        # 2025년 기본세율, 누진공제, 한도액 정의
 │       └── __init__.py
 ├── rag_data/                   # 국세청 공식 가이드라인 원본 PDF 및 Vector DB
-├── tests/                      # Pytest 테스트 스위트 (74개 통과)
+├── tests/                      # Pytest 테스트 스위트 (92개)
 │   ├── unit/                   # 단위 테스트
 │   │   ├── test_tax_engine.py          # 세액 계산 엔진 단위 테스트
 │   │   ├── test_rule_engine.py         # 규칙 검증 엔진 단위 테스트
@@ -195,7 +202,9 @@ yearend_tax/
 │   │   ├── test_audit_trail.py         # 감사 로그 단위 테스트
 │   │   ├── test_authorization_guard.py # 보안/권한 가드 단위 테스트
 │   │   ├── test_rag_system.py          # RAG 벡터 검색 단위 테스트
-│   │   └── test_upload_validation.py   # 파일 업로드 유효성 테스트
+│   │   ├── test_upload_validation.py   # 파일 업로드 유효성 테스트
+│   │   ├── test_nts_sections.py        # 간소화 섹션 파서 (가족 이름을 바꿔도 같은 결과)
+│   │   └── test_jwt_verification.py    # JWT 위조·만료·데모토큰·IDOR 차단 테스트
 │   ├── integration/            # 통합 테스트
 │   │   └── test_api_v1.py              # v1 API 엔드포인트 통합 테스트
 │   └── conftest.py             # 테스트 픽스처
@@ -212,9 +221,9 @@ yearend_tax/
 
 ## 6. 보안 및 개인정보 보호 원칙 (Security & Compliance)
 
-* **Zero-Plaintext RRN 원칙**: 업로드 직후 인메모리에서 주민등록번호 뒷자리를 마스킹(`900101-1******`)하며, DB 및 브라우저 스토리지 어디에도 원본 주민등록번호를 평문으로 보관하지 않습니다.
+* **Zero-Plaintext RRN 원칙**: 업로드 직후 인메모리에서 주민등록번호 뒷자리를 마스킹(서버 `900101-[RRN Omitted]`, 브라우저 `900101-1******`)하며, DB 및 브라우저 스토리지 어디에도 원본 주민등록번호를 평문으로 보관하지 않습니다.
 * **수식 연산 결정론화 (Zero-Hallucination)**: 세액 계산 자체에는 LLM을 일절 사용하지 않아 AI의 수식 왜곡 및 할루시네이션 위험을 원천 차단합니다.
-* **환경 인지형 IDOR(BOLA) 방어**: 프로덕션 모드(`ENVIRONMENT=production`)에서 헤더 위조를 차단하여 타인의 세무 데이터 접근을 완벽 격리합니다.
+* **JWT 서명 검증 & IDOR(BOLA) 방어**: `SUPABASE_URL`(JWKS) 또는 `SUPABASE_JWT_SECRET`으로 토큰 서명·만료·aud를 검증하고, 세션·문서마다 소유자를 대조합니다. 운영 모드(`ENVIRONMENT=production`)에서는 `X-User-Id`·데모 토큰을 무시하며, 검증 설정이 없으면 모든 토큰을 거부합니다.
 * **클라이언트 PII 재귀 살균**: `deepSanitizeSensitiveData`를 통해 브라우저 로컬 저장소 저장 직전 모든 객체 트리의 주민번호 및 식별번호를 자동 마스킹합니다.
 * **안전한 HTTP 보안 헤더 탑재**: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin` 적용.
 
@@ -292,4 +301,4 @@ yearend_tax/
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -v tests/
 ```
-(총 74개 단위 및 통합 테스트 100% 통과)
+(총 92개 단위·통합 테스트. `test_rag_system.py` 등 RAG 4개는 OpenAI API 키와 네트워크가 있어야 통과합니다)
