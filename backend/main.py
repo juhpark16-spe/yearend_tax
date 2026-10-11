@@ -5,6 +5,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.core.config import settings
 from backend.core.database import Base, engine
 from backend.api.v1.endpoints import router as api_v1_router
+from backend.core.security_check import enforce_security_settings
+
+# 비밀 키·보안 설정 점검 (운영 환경에서 치명적 누락이 있으면 시작하지 않음)
+enforce_security_settings()
+_IS_PRODUCTION = str(settings.ENVIRONMENT).lower() == "production"
 
 # DB 테이블 자동 생성 (스켈레톤 개발용)
 Base.metadata.create_all(bind=engine)
@@ -13,9 +18,10 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     description="근로자를 위한 AI 셀프 연말정산 시뮬레이션 및 감사 추적 서비스",
     version="2.0.0",
-    openapi_url=f"{settings.API_V1_STR}/openapi.json",
-    docs_url="/docs",
-    redoc_url="/redoc"
+    # 운영 환경에서는 API 문서(스키마) 노출을 끈다
+    openapi_url=None if _IS_PRODUCTION else f"{settings.API_V1_STR}/openapi.json",
+    docs_url=None if _IS_PRODUCTION else "/docs",
+    redoc_url=None if _IS_PRODUCTION else "/redoc"
 )
 
 # CORS 미들웨어 설정
@@ -49,7 +55,6 @@ def health_check():
         "status": "healthy",
         "project": settings.PROJECT_NAME,
         "tax_year": settings.TAX_YEAR,
-        "environment": settings.ENVIRONMENT
     }
 
 
