@@ -107,6 +107,11 @@ api.interceptors.request.use(
         }
       }
     } catch (err) {
+      // 게스트 토큰 발급이 요청 횟수 제한(429)에 걸리면 인증 없이 보내 401로 바뀌지 않게, 안내 문구와 함께 바로 실패시킨다
+      if (err?.response?.status === 429) {
+        err.userMessage = err.response.data?.detail || '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.';
+        return Promise.reject(err);
+      }
       console.warn('API 인증 헤더 설정 중 오류:', err);
     }
     return config;

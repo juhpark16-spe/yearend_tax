@@ -64,7 +64,7 @@ class WithholdingValidator:
 
         # 3. 근무지 미등록 점검
         if len(workplaces) == 0:
-            notes.append("등록된 근무지 소득 자료가 없습니다 (초기 Zero-state 상태).")
+            notes.append("등록된 근무지 소득 자료가 없습니다. 원천징수영수증을 등록하면 근무지 합산도 함께 확인합니다.")
 
         return WorkplaceValidationDetail(
             current_workplace_count=len(current_wps),
