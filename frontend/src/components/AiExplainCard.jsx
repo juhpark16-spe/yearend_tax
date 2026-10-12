@@ -115,9 +115,10 @@ export default function AiExplainCard({ taxResult }) {
         <button
           type="button"
           onClick={() => setCollapsed(false)}
-          className="w-full py-1.5 rounded-xl border border-slate-200 text-[11.5px] font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
+          className="flex items-center justify-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-800 transition mx-auto pt-1 cursor-pointer"
         >
-          ▾ '{topic.label}' 해설 펼치기
+          <span>자세히보기</span>
+          <span className="text-[11px]">∨</span>
         </button>
       )}
 
@@ -139,9 +140,10 @@ export default function AiExplainCard({ taxResult }) {
           <button
             type="button"
             onClick={() => setCollapsed(true)}
-            className="w-full mt-1 py-1.5 rounded-xl border border-slate-200 bg-white text-[11.5px] font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+            className="flex items-center justify-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-800 transition mx-auto pt-1 cursor-pointer"
           >
-            ▴ 접기
+            <span>접기</span>
+            <span className="text-[11px]">∧</span>
           </button>
         </div>
       )}

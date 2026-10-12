@@ -93,9 +93,10 @@ export default function ServerCrossCheckCard({ jsResult, userName = '' }) {
           <button
             type="button"
             onClick={() => setCollapsed((v) => !v)}
-            className="w-full py-1.5 rounded-xl border border-slate-200 text-[11.5px] font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
+            className="flex items-center justify-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-800 transition mx-auto pt-1 cursor-pointer"
           >
-            {collapsed ? '▾ 비교표·감사 로그 펼치기' : '▴ 접기'}
+            <span>{collapsed ? '자세히보기' : '접기'}</span>
+            <span className="text-[11px]">{collapsed ? '∨' : '∧'}</span>
           </button>
           {!collapsed && (
           <>
@@ -195,9 +196,10 @@ export default function ServerCrossCheckCard({ jsResult, userName = '' }) {
           <button
             type="button"
             onClick={() => setCollapsed(true)}
-            className="w-full py-1.5 rounded-xl border border-slate-200 text-[11.5px] font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
+            className="flex items-center justify-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-800 transition mx-auto pt-1 cursor-pointer"
           >
-            ▴ 접기
+            <span>접기</span>
+            <span className="text-[11px]">∧</span>
           </button>
           </>
           )}
