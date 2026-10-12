@@ -18,6 +18,8 @@ export default function ServerCrossCheckCard({ jsResult, userName = '' }) {
   const [logs, setLogs] = useState([]);
   const [error, setError] = useState('');
   const [openLogs, setOpenLogs] = useState(false);
+  // 결과가 길어서 접어 둘 수 있게 (요약 한 줄은 항상 표시)
+  const [collapsed, setCollapsed] = useState(false);
   // 서버에 저장된 내 자료 삭제 (한 번 더 눌러야 삭제되는 2단계 버튼)
   const [deleteState, setDeleteState] = useState('idle'); // idle | confirm | deleting | done | error
   const deleteServerData = async () => {
@@ -47,6 +49,7 @@ export default function ServerCrossCheckCard({ jsResult, userName = '' }) {
       setCreditRows(r.creditRows);
       setAppliedRows(r.appliedRows);
       setLogs(r.logs);
+      setCollapsed(false);
       setState('done');
     } catch (e) {
       setError(serverErrorMessage(e));
@@ -87,6 +90,15 @@ export default function ServerCrossCheckCard({ jsResult, userName = '' }) {
           <div className={`rounded-xl px-3 py-2 text-xs font-bold border ${allSame ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
             {allSame ? '✓ 7개 단계 모두 두 엔진의 결과가 일치합니다.' : '일부 단계에서 두 엔진의 결과가 다릅니다. 아래 표에서 차이를 확인하세요.'}
           </div>
+          <button
+            type="button"
+            onClick={() => setCollapsed((v) => !v)}
+            className="w-full py-1.5 rounded-xl border border-slate-200 text-[11.5px] font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
+          >
+            {collapsed ? '▾ 비교표·감사 로그 펼치기' : '▴ 접기'}
+          </button>
+          {!collapsed && (
+          <>
           <div className="rounded-2xl border border-slate-100 overflow-hidden">
             <div className="grid grid-cols-[1.2fr_1fr_1fr_44px] bg-slate-50 text-[11px] font-bold text-slate-500 px-3 py-2">
               <span>단계</span><span className="text-right">화면 엔진</span><span className="text-right">백엔드 엔진</span><span className="text-center">결과</span>
@@ -179,6 +191,15 @@ export default function ServerCrossCheckCard({ jsResult, userName = '' }) {
                 </li>
               ))}
             </ol>
+          )}
+          <button
+            type="button"
+            onClick={() => setCollapsed(true)}
+            className="w-full py-1.5 rounded-xl border border-slate-200 text-[11.5px] font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
+          >
+            ▴ 접기
+          </button>
+          </>
           )}
         </>
       )}

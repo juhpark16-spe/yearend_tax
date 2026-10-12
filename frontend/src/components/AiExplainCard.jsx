@@ -36,6 +36,7 @@ export default function AiExplainCard({ taxResult }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
+  const [collapsed, setCollapsed] = useState(false);
   const cardRef = useRef(null);
 
   const requestExplain = async (t) => {
@@ -43,6 +44,7 @@ export default function AiExplainCard({ taxResult }) {
     setLoading(true);
     setError('');
     setResult(null);
+    setCollapsed(false);
     try {
       const data = await taxService.explainResult({
         category: t.key,
@@ -109,7 +111,17 @@ export default function AiExplainCard({ taxResult }) {
 
       {error && <p className="text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2">{error}</p>}
 
-      {result && (
+      {result && collapsed && (
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          className="w-full py-1.5 rounded-xl border border-slate-200 text-[11.5px] font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
+        >
+          ▾ '{topic.label}' 해설 펼치기
+        </button>
+      )}
+
+      {result && !collapsed && (
         <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 space-y-2">
           <p className="text-sm font-extrabold text-slate-900">{result.title}</p>
           <p className="text-[13px] text-slate-700 leading-relaxed">{result.summary}</p>
@@ -124,6 +136,13 @@ export default function AiExplainCard({ taxResult }) {
               </span>
             ))}
           </div>
+          <button
+            type="button"
+            onClick={() => setCollapsed(true)}
+            className="w-full mt-1 py-1.5 rounded-xl border border-slate-200 bg-white text-[11.5px] font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+          >
+            ▴ 접기
+          </button>
         </div>
       )}
     </div>
