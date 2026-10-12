@@ -16,12 +16,14 @@ class FamilyMatcher:
         cls,
         resident_members: List[Dict[str, Any]],
         hometax_dependents: List[Dict[str, Any]],
+        listed_dependents: List[Dict[str, Any]] = None,
     ) -> Tuple[bool, List[str], List[str]]:
         """등본 구성원과 홈택스 간소화 등록 인원을 비교하여 일치 여부와 유의사항을 도출합니다.
         
         Args:
             resident_members: 등본 파싱 결과 세대원 목록 [{"name": "홍길동", "relation": "SELF", ...}]
-            hometax_dependents: 간소화/수기 등록된 부양가족 목록 [{"name": "홍길동", ...}]
+            hometax_dependents: 기본공제를 신청한 부양가족 목록 [{"name": "홍길동", ...}]
+            listed_dependents: 화면 부양가족 목록 전체(신청 여부 무관). 없으면 hometax_dependents 사용
             
         Returns:
             Tuple[일치여부(bool), 경고메시지목록(List[str]), 불일치인물명단(List[str])]
@@ -58,12 +60,22 @@ class FamilyMatcher:
                 f"[{name}] 님은 주민등록등본상 세대 구성원에 포함되어 있지 않습니다. {hint}"
             )
 
-        # 2. 등본에는 있으나 간소화 자료가 없는 가족 (조회 미동의자 등)
-        missing_in_hometax = sorted(resident_names - hometax_names)
-        for name in missing_in_hometax:
+        # 2. 등본에는 있으나 화면 부양가족 목록에 없는 가족 (신청 여부와 무관하게 목록에 있으면 통과)
+        listed = listed_dependents if listed_dependents is not None else hometax_dependents
+        listed_names: Set[str] = {d.get("name", "").strip() for d in listed if d.get("name")}
+        screen_has_self = any(str(d.get("relation", "")).upper() == "SELF" for d in listed)
+        resident_self = {
+            m.get("name", "").strip() for m in resident_members
+            if str(m.get("relation", "")).upper() == "SELF" or m.get("is_householder")
+        }
+        missing_in_list = sorted(
+            n for n in resident_names - listed_names
+            if not (screen_has_self and n in resident_self)  # 등본의 본인 = 화면의 본인
+        )
+        for name in missing_in_list:
             warnings.append(
-                f"주민등록등본상 동거 가족인 [{name}] 님의 국세청 간소화 자료가 등록되지 않았습니다. "
-                f"홈택스에서 부양가족 자료제공 동의가 완료되었는지 확인 바랍니다."
+                f"[{name}] 님은 주민등록등본에는 있지만 부양가족 목록에 없습니다. "
+                f"공제 대상이라면 부양가족으로 추가해 주세요."
             )
 
         # 등본과 간소화 명단이 완전히 일치하는지 여부

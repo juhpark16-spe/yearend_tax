@@ -273,3 +273,23 @@ def test_rule_engine_unclaimed_dependent_not_error():
     assert not any("홍부모" in e for e in r.errors)
     assert not any("홍부모" in w for w in r.warnings)  # 형제자매 이중공제 경고도 신청분만
     assert any("[홍자녀]" in e and "초과로 입력" in e for e in r.errors)
+
+
+def test_family_matcher_listed_but_unclaimed_is_not_missing():
+    """등본에 있고 화면 목록에도 있으면(기본공제 미신청이어도) '목록에 없음' 경고를 내지 않음, 등본 본인 = 화면 본인"""
+    resident = [
+        {"name": "박주현", "relation": "SELF", "is_householder": True},
+        {"name": "고길동", "relation": "SPOUSE"},
+        {"name": "고영수", "relation": "CHILD"},
+        {"name": "고둘리", "relation": "CHILD"},
+    ]
+    listed = [
+        {"name": "홍길동", "relation": "SELF"},
+        {"name": "고길동", "relation": "SPOUSE"},
+        {"name": "고영수", "relation": "CHILD", "is_basic_deduction": False},
+    ]
+    claimed = [d for d in listed if d.get("is_basic_deduction", True)]
+    _, warnings, _ = FamilyMatcher.match_family_members(resident, claimed, listed_dependents=listed)
+    assert not any("고영수" in w for w in warnings)
+    assert not any("박주현" in w for w in warnings)
+    assert any("[고둘리]" in w and "부양가족 목록에 없습니다" in w for w in warnings)

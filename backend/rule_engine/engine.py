@@ -141,7 +141,8 @@ class RuleEngine:
 
         is_matched, match_warnings, _ = self.family_matcher.match_family_members(
             resident_members=resident_members,
-            hometax_dependents=claimed_dependents
+            hometax_dependents=claimed_dependents,
+            listed_dependents=target_dependents,
         )
 
         # -------------------------------------------------------------

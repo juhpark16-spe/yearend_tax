@@ -154,6 +154,11 @@ export const taxService = {
     const response = await api.post('/tax/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
+    // 업로드가 쓴 서버 세션을 기억해, 요건 검증·교차검증이 같은 세션(업로드한 등본 포함)을 쓰게 한다
+    try {
+      const sid = Array.isArray(response.data) && response.data[0]?.session_id;
+      if (sid && !localStorage.getItem(SERVER_SESSION_KEY)) localStorage.setItem(SERVER_SESSION_KEY, sid);
+    } catch { /* 저장소 사용 불가 시 무시 */ }
     return response.data;
   },
   // 화면 입력 자료 저장 (근무지·부양가족·공제) — 백엔드 세액 엔진 교차검증용

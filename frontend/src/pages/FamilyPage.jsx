@@ -7,6 +7,8 @@ import { useAuth } from '../context/AuthContext';
 import { getSecureItem, setSecureItem, maskRrn } from '../utils/secureStorage';
 import { validatePdfFile } from '../utils/fileValidation';
 import { failsAgeRequirement, shouldExcludeBasicDeduction } from '../utils/eligibility';
+import { membersFromProofUpload } from '../utils/proofExtract';
+import { taxService } from '../services/api';
 
 /**
  * [Step 2] 부양가족 정보 및 정보변경 화면
@@ -102,6 +104,7 @@ export default function FamilyPage({ onGoHome, onNext, onPrev, onNavigateStep, u
   const [proofDocType, setProofDocType] = useState('resident'); // 'resident' (주민등록등본) | 'family' (가족관계증명서)
   const [isProofDragging, setIsProofDragging] = useState(false);
   const [isAnalyzingProof, setIsAnalyzingProof] = useState(false);
+  const [proofError, setProofError] = useState('');
   const [proofFileName, setProofFileName] = useState('');
   const [selectedProofIds, setSelectedProofIds] = useState([]);
 
@@ -215,15 +218,42 @@ export default function FamilyPage({ onGoHome, onNext, onPrev, onNavigateStep, u
   };
 
   // 증빙자료 파일 업로드 및 AI 부양가족 추출 핸들러
-  const handleProofFileUpload = (fileOrName = '주민등록등본.pdf', docType = proofDocType) => {
+  const handleProofFileUpload = async (fileOrName = '주민등록등본.pdf', docType = proofDocType) => {
     let fileName = typeof fileOrName === 'string' ? fileOrName : fileOrName?.name || '주민등록등본.pdf';
-    if (fileOrName && typeof fileOrName === 'object' && fileOrName.size !== undefined) {
+    const isRealFile = Boolean(fileOrName && typeof fileOrName === 'object' && fileOrName.size !== undefined);
+    if (isRealFile) {
       if (!validatePdfFile(fileOrName)) {
         return;
       }
       fileName = fileOrName.name;
     }
     setProofFileName(fileName);
+    setProofError('');
+
+    // 실제 파일: 서버가 주민번호를 가린 뒤 세대원·가족을 추출 (/tax/upload)
+    if (isRealFile) {
+      setIsAnalyzingProof(true);
+      try {
+        const formData = new FormData();
+        formData.append('files', fileOrName);
+        const res = await taxService.uploadDocuments(formData);
+        const { items, error } = membersFromProofUpload(Array.isArray(res) ? res[0] : null, docType);
+        if (error) {
+          setProofError(error);
+          return;
+        }
+        setCollectedList(items);
+        setSelectedProofIds(items.map((item) => item.id));
+        setViewMode('confirm_data');
+      } catch (err) {
+        setProofError(err?.userMessage || '증빙서류를 분석하지 못했습니다. 서버 연결을 확인하거나 직접등록으로 추가해 주세요.');
+      } finally {
+        setIsAnalyzingProof(false);
+      }
+      return;
+    }
+
+    // '샘플 서류로 바로 체험' 버튼: 화면 안의 예시 가족으로 흐름만 보여 준다
     setIsAnalyzingProof(true);
     setTimeout(() => {
       setIsAnalyzingProof(false);
@@ -1427,6 +1457,10 @@ export default function FamilyPage({ onGoHome, onNext, onPrev, onNavigateStep, u
               취소
             </button>
           </div>
+
+          {proofError && !isAnalyzingProof && (
+            <p className="mx-4 mb-3 text-xs font-semibold text-rose-600 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2">{proofError}</p>
+          )}
 
           {/* AI 분석 중 로딩 오버레이 */}
           {isAnalyzingProof && (
