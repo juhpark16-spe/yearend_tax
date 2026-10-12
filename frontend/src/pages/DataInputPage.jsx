@@ -1494,7 +1494,9 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
           const digits = String(birthStr).replace(/[^0-9]/g, '');
           if (digits.length >= 6) {
             let year = parseInt(digits.slice(0, 2), 10);
-            if (digits.length >= 7) {
+            if (digits.length === 8 && /^(19|20)/.test(digits)) {
+              year = parseInt(digits.slice(0, 4), 10); // "1981.01.01" 형식
+            } else if (digits.length >= 7) {
               const gender = digits[6];
               const century = ['3', '4', '7', '8'].includes(gender) ? 2000 : 1900;
               year += century;

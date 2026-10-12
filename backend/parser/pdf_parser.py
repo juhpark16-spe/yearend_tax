@@ -17,6 +17,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import pdfplumber
 from pypdf import PdfReader
 
+from backend.parser.text_normalize import fix_broken_hangul, fix_broken_tables, is_broken_hangul
+
 from backend.core.config import settings
 from backend.parser.classifier import DocumentClassifier
 from backend.parser.extractor import DocumentEntityExtractor
@@ -59,6 +61,10 @@ class PDFParser:
                     all_tables.extend(tables)
 
         full_text = "\n\n--- PAGE BREAK ---\n\n".join(extracted_pages)
+        # 폰트 매핑 오류로 받침이 깨진 PDF(인→읶, 신→싞 등) 복원
+        if is_broken_hangul(full_text):
+            full_text = fix_broken_hangul(full_text, force=True)
+            all_tables = fix_broken_tables(all_tables, force=True)
         return full_text, all_tables
 
     def extract_text_with_pypdf(self, file_bytes: bytes) -> str:
@@ -69,7 +75,7 @@ class PDFParser:
             t = page.extract_text()
             if t:
                 extracted_pages.append(t)
-        return "\n\n--- PAGE BREAK ---\n\n".join(extracted_pages)
+        return fix_broken_hangul("\n\n--- PAGE BREAK ---\n\n".join(extracted_pages))
 
     def _call_vision_fallback(self, file_bytes: bytes, file_name: str) -> str:
         """스캔본/이미지형 PDF 감지 시 GPT-4o-mini Vision 클라우드 OCR 파이프라인으로 전환합니다.

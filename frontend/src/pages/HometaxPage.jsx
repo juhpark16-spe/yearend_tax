@@ -9,6 +9,16 @@ import { validatePdfFile } from '../utils/fileValidation';
 import { isIncomeExcessMember } from '../utils/eligibility';
 import { removeUserTaxDataKey } from '../utils/userTaxStorage';
 
+// 생년월일을 YYMMDD 6자리로 통일 (주민번호 앞자리 우선, "1981.01.01" 같은 8자리 표기도 처리)
+const toBirth6 = (person) => {
+  const fromRrn = String(person?.rrn || '').replace(/[^0-9]/g, '');
+  if (fromRrn.length >= 6) return fromRrn.slice(0, 6);
+  const d = String(person?.birth || '').replace(/[^0-9]/g, '');
+  if (d.length >= 8 && /^(19|20)/.test(d)) return d.slice(2, 8);
+  return d.slice(0, 6);
+};
+
+
 /**
  * [Step 3] 국세청 연말정산 간소화 자료 화면
  * 사용자 요구사항:
@@ -172,8 +182,8 @@ export default function HometaxPage({
       if (rawPersons.length > 0 && familyList.length > 0) {
         matchedPersons = rawPersons.filter((p) => {
           return familyList.some((fam) => {
-            const famBirth = (fam.birth || fam.rrn || '').replace(/[^0-9]/g, '').slice(0, 6);
-            const pBirth = (p.birth || p.rrn || '').replace(/[^0-9]/g, '').slice(0, 6);
+            const famBirth = toBirth6(fam);
+            const pBirth = toBirth6(p);
             const birthMatch = famBirth && pBirth && famBirth === pBirth;
 
             const famName = (fam.name || '').trim();
@@ -192,8 +202,8 @@ export default function HometaxPage({
         }).map((p) => {
           // 가족 관계 속성 매핑
           const matchedFam = familyList.find((fam) => {
-            const famBirth = (fam.birth || fam.rrn || '').replace(/[^0-9]/g, '').slice(0, 6);
-            const pBirth = (p.birth || p.rrn || '').replace(/[^0-9]/g, '').slice(0, 6);
+            const famBirth = toBirth6(fam);
+            const pBirth = toBirth6(p);
             const famName = (fam.name || '').trim();
             const pName = (p.name || '').trim();
             return (famBirth && pBirth && famBirth === pBirth) || (famName && pName && famName === pName);

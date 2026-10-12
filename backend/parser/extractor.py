@@ -1443,7 +1443,8 @@ class DocumentEntityExtractor:
                 def parse_cash_nums(nums_list):
                     clean_nums = [int(x.replace(",", "")) for x in nums_list if x]
                     if len(clean_nums) >= 6:
-                        return clean_nums[0], clean_nums[1], clean_nums[2], clean_nums[3], clean_nums[4], clean_nums[5]
+                        # 국세청 안내: 현금영수증 주택임차료(월세) 거래분은 일반사용분으로 계산
+                        return clean_nums[0] + clean_nums[4], clean_nums[1], clean_nums[2], clean_nums[3], clean_nums[4], clean_nums[5]
                     elif len(clean_nums) == 5:
                         return clean_nums[0], clean_nums[1], clean_nums[2], clean_nums[3], 0, clean_nums[4]
                     elif len(clean_nums) == 4:
