@@ -37,10 +37,10 @@ class DocumentService:
         return self.masker.mask_rrn(text, mode="omitted")
 
     def extract_text_from_pdf(self, file_bytes: bytes) -> str:
-        """pdfplumber를 통해 PDF 바이너리에서 원문 텍스트를 추출합니다.
+        """pdfplumber를 통해 PDF 바이너리에서 텍스트를 추출합니다 (주민번호 뒷자리는 즉시 마스킹).
         """
         text, _ = self.pdf_parser.extract_text_with_pdfplumber(file_bytes)
-        return text
+        return self.masker.mask_rrn(text, mode="omitted")
 
     def classify_document(self, text: str, filename: str = "") -> Tuple[DocumentType, float, Dict[str, Any]]:
         """문서 텍스트와 파일명을 기반으로 4종(HOMETAX, WITHHOLDING, RESIDENT, FAMILY)으로 자동 분류합니다.

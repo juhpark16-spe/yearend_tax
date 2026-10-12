@@ -67,6 +67,16 @@ class PDFParser:
             all_tables = fix_broken_tables(all_tables, force=True)
         return full_text, all_tables
 
+    def _mask_tables(self, tables):
+        """표 셀 문자열의 주민등록번호 뒷자리를 마스킹합니다."""
+        if not tables:
+            return tables
+        return [
+            [[self.masker.mask_rrn(c, mode="omitted") if isinstance(c, str) else c for c in (row or [])]
+             for row in (table or [])]
+            for table in tables
+        ]
+
     def extract_text_with_pypdf(self, file_bytes: bytes) -> str:
         """pypdf를 사용하여 보조적으로 텍스트를 추출합니다."""
         extracted_pages: List[str] = []
@@ -230,6 +240,9 @@ class PDFParser:
 
         # 4. 즉시 PII 마스킹 (메모리 상에서 주민등록번호 즉각 마스킹)
         masked_text = self.masker.mask_rrn(raw_text, mode="omitted")
+        # 표(tables) 셀에도 주민번호가 그대로 들어 있으므로 같은 방식으로 즉시 마스킹 (원문은 남기지 않음)
+        tables = self._mask_tables(tables)
+        raw_text = ""
 
         # 5. 서식 4종 자동 분류 (classifier)
         doc_type, confidence, class_meta = self.classifier.classify(masked_text, file_name)

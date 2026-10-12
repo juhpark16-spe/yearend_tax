@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.models.audit_log import AuditLog
@@ -1507,33 +1508,51 @@ class TaxCalculationService:
         # ---------------------------------------------------------------------
         # STEP 8. DB 저장 및 영속화 (TaxResult & AuditLogs - 단일 트랜잭션)
         # ---------------------------------------------------------------------
-        tax_result = self.db.query(TaxResult).filter(TaxResult.session_id == sess_uuid).first()
-        if not tax_result:
-            tax_result = TaxResult(session_id=sess_uuid)
-            self.db.add(tax_result)
+        result_values = {
+            "total_gross_salary": total_salary,
+            "earned_income_deduction": earned_income_deduction,
+            "earned_income_amount": earned_income_amount,
+            "total_personal_deduction": total_personal_deduction,
+            "total_pension_deduction": total_pension_deduction,
+            "total_special_income_deduction": total_special_income_deduction,
+            "total_other_income_deduction": total_other_income_deduction,
+            "income_deduction_limit_excess": income_deduction_limit_excess,
+            "taxable_standard": taxable_standard,
+            "calculated_tax": calculated_tax,
+            "tax_reduction_sme": tax_reduction_sme,
+            "tax_credit_earned_income": tax_credit_earned_income,
+            "tax_credit_child": tax_credit_child,
+            "tax_credit_marriage": tax_credit_marriage,
+            "tax_credit_pension_account": tax_credit_pension_account,
+            "tax_credit_special": tax_credit_special,
+            "tax_credit_monthly_rent": tax_credit_monthly_rent,
+            "standard_tax_credit": standard_tax_credit,
+            "final_decision_tax": final_decision_tax,
+            "total_prepaid_tax": total_prepaid_tax,
+            "final_refund_amount": final_refund_amount,
+            "calculated_at": datetime.now(timezone.utc),
+        }
 
-        tax_result.total_gross_salary = total_salary
-        tax_result.earned_income_deduction = earned_income_deduction
-        tax_result.earned_income_amount = earned_income_amount
-        tax_result.total_personal_deduction = total_personal_deduction
-        tax_result.total_pension_deduction = total_pension_deduction
-        tax_result.total_special_income_deduction = total_special_income_deduction
-        tax_result.total_other_income_deduction = total_other_income_deduction
-        tax_result.income_deduction_limit_excess = income_deduction_limit_excess
-        tax_result.taxable_standard = taxable_standard
-        tax_result.calculated_tax = calculated_tax
-        tax_result.tax_reduction_sme = tax_reduction_sme
-        tax_result.tax_credit_earned_income = tax_credit_earned_income
-        tax_result.tax_credit_child = tax_credit_child
-        tax_result.tax_credit_marriage = tax_credit_marriage
-        tax_result.tax_credit_pension_account = tax_credit_pension_account
-        tax_result.tax_credit_special = tax_credit_special
-        tax_result.tax_credit_monthly_rent = tax_credit_monthly_rent
-        tax_result.standard_tax_credit = standard_tax_credit
-        tax_result.final_decision_tax = final_decision_tax
-        tax_result.total_prepaid_tax = total_prepaid_tax
-        tax_result.final_refund_amount = final_refund_amount
-        tax_result.calculated_at = datetime.now(timezone.utc)
+        def _apply(obj: TaxResult) -> TaxResult:
+            for key, value in result_values.items():
+                setattr(obj, key, value)
+            return obj
+
+        tax_result = self.db.query(TaxResult).filter(TaxResult.session_id == sess_uuid).first()
+        if tax_result:
+            _apply(tax_result)
+        else:
+            # 같은 세션 계산 요청이 동시에 두 번 오면(화면 자동 검증 + 사용자 실행 등) 한쪽이 먼저 행을 만든다.
+            # 그때는 UNIQUE 충돌을 잡아 이미 생긴 행을 갱신한다.
+            try:
+                with self.db.begin_nested():
+                    tax_result = _apply(TaxResult(session_id=sess_uuid))
+                    self.db.add(tax_result)
+                    self.db.flush()
+            except IntegrityError:
+                tax_result = _apply(
+                    self.db.query(TaxResult).filter(TaxResult.session_id == sess_uuid).one()
+                )
 
         self.db.flush()
 

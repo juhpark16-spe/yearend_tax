@@ -336,6 +336,8 @@ export function compareValidation(request = {}, response = {}) {
       serverEligible,
       same: d.relation === 'SELF' || d.is_basic_deduction === serverEligible,
       reasons: Array.isArray(s.disqualification_reasons) ? s.disqualification_reasons : [],
+      expenseNote: s.expense_note || '',
+      deductibleExpenses: Array.isArray(s.deductible_expenses) ? s.deductible_expenses : [],
     };
   });
 }

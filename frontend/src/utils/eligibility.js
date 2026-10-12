@@ -88,3 +88,53 @@ export const birthOrderOf = (m = {}, familyList = []) => {
   const idx = children.findIndex((x) => x.c === m);
   return idx >= 0 ? idx + 1 : 1;
 };
+
+/**
+ * 기본공제에서 빠진 가족이라도 공제받을 수 있는 지출 항목 (국세청 연말정산 안내 '부양가족 공제요건' 표)
+ * - 보장성보험료: 나이·소득 요건 모두 필요
+ * - 의료비: 나이·소득 요건 없음 (근로기간 지출분)
+ * - 교육비: 소득 요건만 (직계존속 제외, 장애인특수교육비는 소득 요건 없고 직계존속도 가능)
+ * - 신용카드 등: 소득 요건만 (형제자매 제외)
+ * - 기부금: 소득 요건만 (정치자금·고향사랑·우리사주조합 기부금은 본인만)
+ */
+export const isSiblingRelation = (rel = '') => /형제|자매/.test(String(rel));
+export const isAscendantRelation = (rel = '') => /존속|부\/모|부모|조부|조모/.test(String(rel));
+
+export const expenseEligibility = (m = null, { incomeExcess = false } = {}) => {
+  const isSelf = Boolean(m?.isSelf || m?.relation === '본인');
+  if (isSelf) {
+    return { insurance: true, medical: true, education: true, specialEducation: true, card: true, donation: true };
+  }
+  const rel = String(m?.relation || '');
+  const incomeOk = !(incomeExcess || (m && isIncomeExcessMember(m)));
+  const ageOk = !(m && failsAgeRequirement(m));
+  return {
+    insurance: incomeOk && ageOk,
+    medical: true,
+    education: incomeOk && !isAscendantRelation(rel),
+    specialEducation: true,
+    card: incomeOk && !isSiblingRelation(rel),
+    donation: incomeOk,
+  };
+};
+
+/** 본인만 공제되는 기부금 종류 */
+export const isSelfOnlyDonationType = (type = '') => /정치자금|고향사랑|우리사주/.test(String(type));
+
+/** 기본공제 제외 가족에게 보여 줄 '그래도 공제되는 항목' 안내 (해당 없으면 '') */
+export const expenseEligibilityNote = (m = {}) => {
+  if (!m || m.isSelf || m.relation === '본인' || !shouldExcludeBasicDeduction(m)) return '';
+  const e = expenseEligibility(m);
+  const labels = [
+    e.insurance && '보장성보험료',
+    e.medical && '의료비',
+    e.education && '교육비',
+    e.card && '신용카드 등',
+    e.donation && '기부금',
+  ].filter(Boolean);
+  if (labels.length === 1) return '기본공제는 제외되지만 의료비는 공제됩니다 (나이·소득 요건 없음)';
+  const last = labels[labels.length - 1];
+  const code = last.charCodeAt(last.length - 1) - 0xac00;
+  const josa = code >= 0 && code % 28 !== 0 ? '은' : '는';
+  return `기본공제는 제외되지만 ${labels.join('·')}${josa} 공제됩니다`;
+};

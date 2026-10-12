@@ -4,20 +4,191 @@ import HomeButton from '../components/HomeButton';
 import UserAuthStatus from '../components/UserAuthStatus';
 import UploadProgressBar from '../components/UploadProgressBar';
 import { taxService } from '../services/api';
-import { getSecureItem } from '../utils/secureStorage';
 import { validatePdfFile } from '../utils/fileValidation';
-import { isIncomeExcessMember } from '../utils/eligibility';
+import { expenseEligibility } from '../utils/eligibility';
+import { familyMemberFromHometaxPerson, guessRelation, matchHometaxPersons } from '../utils/hometaxMatch';
+import { getSecureItem, setSecureItem } from '../utils/secureStorage';
 import { removeUserTaxDataKey } from '../utils/userTaxStorage';
 
-// 생년월일을 YYMMDD 6자리로 통일 (주민번호 앞자리 우선, "1981.01.01" 같은 8자리 표기도 처리)
-const toBirth6 = (person) => {
-  const fromRrn = String(person?.rrn || '').replace(/[^0-9]/g, '');
-  if (fromRrn.length >= 6) return fromRrn.slice(0, 6);
-  const d = String(person?.birth || '').replace(/[^0-9]/g, '');
-  if (d.length >= 8 && /^(19|20)/.test(d)) return d.slice(2, 8);
-  return d.slice(0, 6);
-};
 
+
+
+/**
+ * 국세청 PDF 분석 결과 + 부양가족 목록 → 화면·공제자료용 데이터
+ * (업로드 직후, 그리고 PDF에만 있는 가족을 목록에 추가했을 때 다시 매칭할 때 사용)
+ */
+const buildHometaxData = (parsedResult, familyList, { fileName, fileSize, isOcr }) => {
+  const rawPersons = Array.isArray(parsedResult?.persons) ? parsedResult.persons : [];
+
+  // 2. 부양가족 매칭 (이름과 주민번호/생년월일 매칭) — 목록에 없는 사람은 unmatchedPersons로 따로 안내
+  const matchResult = matchHometaxPersons(rawPersons, familyList);
+  let matchedPersons = matchResult.matched;
+  let unmatchedPersons = matchResult.unmatched;
+
+  // 만약 등록된 부양가족 목록이 아직 없거나 매칭 결과가 비어있는 경우 전체 persons를 기본 채택
+  if (matchedPersons.length === 0 && rawPersons.length > 0) {
+    unmatchedPersons = [];
+    matchedPersons = rawPersons.map((p, idx) => ({
+      ...p,
+      relation: (p.name === '본인' || idx === 0) ? '본인' : '부양가족',
+    }));
+  }
+
+  // 3. 매칭된 사람들의 항목별 합계 계산 (요구사항 2: 매칭된 사람들의 항목별 합계금액 표기)
+  let health = 0, pension = 0, employment = 0, insurance = 0, medical = 0;
+  let generalInsurance = 0, disabledInsurance = 0;
+  let education = 0, credit = 0, debit = 0, cash = 0, donation = 0;
+  let pension_saving = 0, long_invest = 0;
+  let market = 0, transport = 0, culture = 0;
+  let credit_card_culture = 0, debit_card_culture = 0, cash_receipt_culture = 0;
+
+  if (matchedPersons.length > 0) {
+    matchedPersons.forEach((mp) => {
+      const items = mp.items || {};
+      health = Math.max(health, Number(items.health_insurance) || 0);
+      pension = Math.max(pension, Number(items.national_pension) || 0);
+      employment = Math.max(employment, Number(items.employment_insurance) || 0);
+      const pName = (mp.name || '').replace(/\(.*?\)/g, '').trim();
+      const famForIncome = familyList.find((fam) => (fam.name || '').replace(/\(.*?\)/g, '').trim() === pName);
+      // 국세청 '부양가족 공제요건' 표: 기본공제에서 빠져도 의료비는 공제, 보험료는 나이·소득, 교육비·카드·기부금은 소득 요건
+      const elig = expenseEligibility(
+        famForIncome || (mp.relation === '본인' ? { isSelf: true } : null),
+        { incomeExcess: Boolean(mp.income_excess) },
+      );
+
+      let personGenIns = 0;
+      let personDisIns = 0;
+      const insList = Array.isArray(mp.insurance_details)
+        ? mp.insurance_details
+        : (Array.isArray(items.insurance_details) ? items.insurance_details : []);
+
+      if (insList.length > 0) {
+        insList.forEach((ins) => {
+          const amt = Number(ins.amount) || 0;
+          const typeStr = String(ins.type || ins.raw_type || '');
+          if (typeStr.includes('장애인')) {
+            personDisIns += amt;
+          } else {
+            personGenIns += amt;
+          }
+        });
+      } else {
+        personGenIns = Number(items.insurance_guaranteed || items.insurance) || 0;
+      }
+
+      if (elig.insurance) {
+        generalInsurance += personGenIns;
+        disabledInsurance += personDisIns;
+        insurance += (personGenIns + personDisIns);
+      }
+      if (elig.medical) medical += Number(items.medical_general) || 0;
+      if (elig.education) {
+        education += Number(items.education_child) || 0;
+      } else {
+        // 장애인특수교육비는 소득 요건이 없고 직계존속도 공제
+        (Array.isArray(mp.education_details) ? mp.education_details : [])
+          .filter((e) => String(e.category || '').includes('장애인특수'))
+          .forEach((e) => { education += Number(e.amount) || 0; });
+      }
+      if (elig.card) {
+        credit += Number(items.credit_card_total ?? items.credit_card_general) || 0;
+        debit += Number(items.debit_card_total ?? items.debit_card_cash) || 0;
+        cash += Number(items.cash_receipt_total ?? items.cash_receipt) || 0;
+      }
+      if (elig.donation) donation += Number(items.donation_amount) || 0;
+      pension_saving += Number(items.personal_pension_saving || items.pension_saving) || 0;
+      long_invest += Number(items.long_invest_amount || items.long_invest) || 0;
+      if (elig.card) {
+        market += Number(items.market_amount) || 0;
+        transport += Number(items.transport_amount) || 0;
+        culture += Number(items.culture_amount ?? items.culture_sports) || 0;
+        credit_card_culture += Number(items.credit_card_culture) || 0;
+        debit_card_culture += Number(items.debit_card_culture) || 0;
+        cash_receipt_culture += Number(items.cash_receipt_culture) || 0;
+      }
+    });
+  } else {
+    health = Number(parsedResult?.health_insurance) || 0;
+    pension = Number(parsedResult?.national_pension) || 0;
+    employment = Number(parsedResult?.employment_insurance) || 0;
+
+    const insList = Array.isArray(parsedResult?.insurance_details) ? parsedResult.insurance_details : [];
+    if (insList.length > 0) {
+      insList.forEach((ins) => {
+        const amt = Number(ins.amount) || 0;
+        const typeStr = String(ins.type || ins.raw_type || '');
+        if (typeStr.includes('장애인')) {
+          disabledInsurance += amt;
+        } else {
+          generalInsurance += amt;
+        }
+      });
+      insurance = generalInsurance + disabledInsurance;
+    } else {
+      generalInsurance = Number(parsedResult?.insurance_guaranteed || parsedResult?.insurance) || 0;
+      disabledInsurance = Number(parsedResult?.insurance_disabled || parsedResult?.disabled_insurance) || 0;
+      insurance = generalInsurance + disabledInsurance;
+    }
+
+    medical = Number(parsedResult?.medical_general || parsedResult?.medical) || 0;
+    education = Number(parsedResult?.education_child || parsedResult?.education) || 0;
+    credit = Number(parsedResult?.credit_card_total || parsedResult?.credit_card_general || parsedResult?.credit_card) || 0;
+    debit = Number(parsedResult?.debit_card_total || parsedResult?.debit_card_cash || parsedResult?.debit_card) || 0;
+    cash = Number(parsedResult?.cash_receipt_total || parsedResult?.cash_receipt || parsedResult?.cash) || 0;
+    donation = Number(parsedResult?.donation_amount || parsedResult?.donation) || 0;
+    pension_saving = Number(parsedResult?.personal_pension_saving || parsedResult?.pension_saving) || 0;
+    long_invest = Number(parsedResult?.long_invest_amount || parsedResult?.long_invest) || 0;
+    market = Number(parsedResult?.market_amount) || 0;
+    transport = Number(parsedResult?.transport_amount) || 0;
+    culture = Number(parsedResult?.culture_amount ?? parsedResult?.culture_sports) || 0;
+    credit_card_culture = Number(parsedResult?.credit_card_culture) || 0;
+    debit_card_culture = Number(parsedResult?.debit_card_culture) || 0;
+    cash_receipt_culture = Number(parsedResult?.cash_receipt_culture) || 0;
+  }
+
+  // 국세청자료 페이지에서 보장성보험료 금액은 해당줄의 납입금액 계의 금액을 작성
+  const rowGuaranteed = Number(parsedResult?.insurance_guaranteed || parsedResult?.insurance || 0);
+  if (rowGuaranteed > 0) {
+    insurance = rowGuaranteed;
+  }
+
+  const data = {
+    ...(parsedResult || {}),
+    uploaded: true,
+    fileName: fileName,
+    size: fileSize,
+    isOcr: isOcr,
+    health,
+    pension,
+    employment,
+    insurance: rowGuaranteed > 0 ? rowGuaranteed : insurance,
+    insurance_guaranteed: rowGuaranteed > 0 ? rowGuaranteed : insurance,
+    generalInsurance,
+    disabledInsurance,
+    medical,
+    education,
+    credit,
+    debit,
+    cash,
+    market,
+    transport,
+    culture,
+    credit_card_culture,
+    debit_card_culture,
+    cash_receipt_culture,
+    donation,
+    pension_saving,
+    long_invest,
+    monthly_rent_paid: Number(parsedResult?.monthly_rent_paid || 0),
+    rent_details: parsedResult?.rent_details || [],
+    housing_rent_loan: Number(parsedResult?.housing_rent_loan || 0),
+    matchedPersons: matchedPersons.length > 0 ? matchedPersons : rawPersons,
+    unmatchedPersons,
+    persons: rawPersons,
+  };
+
+  return data;
+};
 
 /**
  * [Step 3] 국세청 연말정산 간소화 자료 화면
@@ -175,212 +346,48 @@ export default function HometaxPage({
         console.warn('Failed to parse family list', e);
       }
 
-      const rawPersons = Array.isArray(parsedResult?.persons) ? parsedResult.persons : [];
-
-      // 2. 부양가족 매칭 (이름과 주민번호/생년월일 매칭)
-      let matchedPersons = [];
-      if (rawPersons.length > 0 && familyList.length > 0) {
-        matchedPersons = rawPersons.filter((p) => {
-          return familyList.some((fam) => {
-            const famBirth = toBirth6(fam);
-            const pBirth = toBirth6(p);
-            const birthMatch = famBirth && pBirth && famBirth === pBirth;
-
-            const famName = (fam.name || '').trim();
-            const pName = (p.name || '').trim();
-            let nameMatch = famName === pName;
-            if (!nameMatch && pName.includes('*')) {
-              const pPrefix = pName.replace(/\*/g, '');
-              nameMatch = pPrefix && famName.startsWith(pPrefix);
-            }
-
-            if (famBirth && pBirth && famName && pName) {
-              return birthMatch && nameMatch;
-            }
-            return birthMatch || nameMatch;
-          });
-        }).map((p) => {
-          // 가족 관계 속성 매핑
-          const matchedFam = familyList.find((fam) => {
-            const famBirth = toBirth6(fam);
-            const pBirth = toBirth6(p);
-            const famName = (fam.name || '').trim();
-            const pName = (p.name || '').trim();
-            return (famBirth && pBirth && famBirth === pBirth) || (famName && pName && famName === pName);
-          });
-          return {
-            ...p,
-            relation: matchedFam?.relation || (matchedFam?.isSelf ? '본인' : '부양가족'),
-            familyId: matchedFam?.id,
-          };
-        });
-      }
-
-      // 만약 등록된 부양가족 목록이 아직 없거나 매칭 결과가 비어있는 경우 전체 persons를 기본 채택
-      if (matchedPersons.length === 0 && rawPersons.length > 0) {
-        matchedPersons = rawPersons.map((p, idx) => ({
-          ...p,
-          relation: (p.name === '본인' || idx === 0) ? '본인' : '부양가족',
-        }));
-      }
-
-      // 3. 매칭된 사람들의 항목별 합계 계산 (요구사항 2: 매칭된 사람들의 항목별 합계금액 표기)
-      let health = 0, pension = 0, employment = 0, insurance = 0, medical = 0;
-      let generalInsurance = 0, disabledInsurance = 0;
-      let education = 0, credit = 0, debit = 0, cash = 0, donation = 0;
-      let pension_saving = 0, long_invest = 0;
-      let market = 0, transport = 0, culture = 0;
-      let credit_card_culture = 0, debit_card_culture = 0, cash_receipt_culture = 0;
-
-      if (matchedPersons.length > 0) {
-        matchedPersons.forEach((mp) => {
-          const items = mp.items || {};
-          health = Math.max(health, Number(items.health_insurance) || 0);
-          pension = Math.max(pension, Number(items.national_pension) || 0);
-          employment = Math.max(employment, Number(items.employment_insurance) || 0);
-          const pName = (mp.name || '').replace(/\(.*?\)/g, '').trim();
-          const famForIncome = familyList.find((fam) => (fam.name || '').replace(/\(.*?\)/g, '').trim() === pName);
-          const isIncomeExcess = Boolean(mp.income_excess || (famForIncome && isIncomeExcessMember(famForIncome)));
-
-          let personGenIns = 0;
-          let personDisIns = 0;
-          const insList = Array.isArray(mp.insurance_details)
-            ? mp.insurance_details
-            : (Array.isArray(items.insurance_details) ? items.insurance_details : []);
-
-          if (insList.length > 0) {
-            insList.forEach((ins) => {
-              const amt = Number(ins.amount) || 0;
-              const typeStr = String(ins.type || ins.raw_type || '');
-              if (typeStr.includes('장애인')) {
-                personDisIns += amt;
-              } else {
-                personGenIns += amt;
-              }
-            });
-          } else {
-            personGenIns = Number(items.insurance_guaranteed || items.insurance) || 0;
-          }
-
-          if (!isIncomeExcess) {
-            generalInsurance += personGenIns;
-            disabledInsurance += personDisIns;
-            insurance += (personGenIns + personDisIns);
-          }
-          medical += Number(items.medical_general) || 0;
-          education += Number(items.education_child) || 0;
-          credit += Number(items.credit_card_total ?? items.credit_card_general) || 0;
-          debit += Number(items.debit_card_total ?? items.debit_card_cash) || 0;
-          cash += Number(items.cash_receipt_total ?? items.cash_receipt) || 0;
-          donation += Number(items.donation_amount) || 0;
-          pension_saving += Number(items.personal_pension_saving || items.pension_saving) || 0;
-          long_invest += Number(items.long_invest_amount || items.long_invest) || 0;
-          market += Number(items.market_amount) || 0;
-          transport += Number(items.transport_amount) || 0;
-          culture += Number(items.culture_amount ?? items.culture_sports) || 0;
-          credit_card_culture += Number(items.credit_card_culture) || 0;
-          debit_card_culture += Number(items.debit_card_culture) || 0;
-          cash_receipt_culture += Number(items.cash_receipt_culture) || 0;
-        });
-      } else {
-        health = Number(parsedResult?.health_insurance) || 0;
-        pension = Number(parsedResult?.national_pension) || 0;
-        employment = Number(parsedResult?.employment_insurance) || 0;
-
-        const insList = Array.isArray(parsedResult?.insurance_details) ? parsedResult.insurance_details : [];
-        if (insList.length > 0) {
-          insList.forEach((ins) => {
-            const amt = Number(ins.amount) || 0;
-            const typeStr = String(ins.type || ins.raw_type || '');
-            if (typeStr.includes('장애인')) {
-              disabledInsurance += amt;
-            } else {
-              generalInsurance += amt;
-            }
-          });
-          insurance = generalInsurance + disabledInsurance;
-        } else {
-          generalInsurance = Number(parsedResult?.insurance_guaranteed || parsedResult?.insurance) || 0;
-          disabledInsurance = Number(parsedResult?.insurance_disabled || parsedResult?.disabled_insurance) || 0;
-          insurance = generalInsurance + disabledInsurance;
-        }
-
-        medical = Number(parsedResult?.medical_general || parsedResult?.medical) || 0;
-        education = Number(parsedResult?.education_child || parsedResult?.education) || 0;
-        credit = Number(parsedResult?.credit_card_total || parsedResult?.credit_card_general || parsedResult?.credit_card) || 0;
-        debit = Number(parsedResult?.debit_card_total || parsedResult?.debit_card_cash || parsedResult?.debit_card) || 0;
-        cash = Number(parsedResult?.cash_receipt_total || parsedResult?.cash_receipt || parsedResult?.cash) || 0;
-        donation = Number(parsedResult?.donation_amount || parsedResult?.donation) || 0;
-        pension_saving = Number(parsedResult?.personal_pension_saving || parsedResult?.pension_saving) || 0;
-        long_invest = Number(parsedResult?.long_invest_amount || parsedResult?.long_invest) || 0;
-        market = Number(parsedResult?.market_amount) || 0;
-        transport = Number(parsedResult?.transport_amount) || 0;
-        culture = Number(parsedResult?.culture_amount ?? parsedResult?.culture_sports) || 0;
-        credit_card_culture = Number(parsedResult?.credit_card_culture) || 0;
-        debit_card_culture = Number(parsedResult?.debit_card_culture) || 0;
-        cash_receipt_culture = Number(parsedResult?.cash_receipt_culture) || 0;
-      }
-
-      // 국세청자료 페이지에서 보장성보험료 금액은 해당줄의 납입금액 계의 금액을 작성
-      const rowGuaranteed = Number(parsedResult?.insurance_guaranteed || parsedResult?.insurance || 0);
-      if (rowGuaranteed > 0) {
-        insurance = rowGuaranteed;
-      }
-
-      const data = {
-        ...(parsedResult || {}),
-        uploaded: true,
-        fileName: fileName,
-        size: fileSize,
-        isOcr: isOcr,
-        health,
-        pension,
-        employment,
-        insurance: rowGuaranteed > 0 ? rowGuaranteed : insurance,
-        insurance_guaranteed: rowGuaranteed > 0 ? rowGuaranteed : insurance,
-        generalInsurance,
-        disabledInsurance,
-        medical,
-        education,
-        credit,
-        debit,
-        cash,
-        market,
-        transport,
-        culture,
-        credit_card_culture,
-        debit_card_culture,
-        cash_receipt_culture,
-        donation,
-        pension_saving,
-        long_invest,
-        monthly_rent_paid: Number(parsedResult?.monthly_rent_paid || 0),
-        rent_details: parsedResult?.rent_details || [],
-        housing_rent_loan: Number(parsedResult?.housing_rent_loan || 0),
-        matchedPersons: matchedPersons.length > 0 ? matchedPersons : rawPersons,
-        persons: rawPersons,
-      };
-
-      setExtractedData(data);
-
-      try {
-        localStorage.setItem('hometax_extracted_data', JSON.stringify(data));
-      } catch (e) {
-        console.error('Failed to save hometax data', e);
-      }
-
-      // 공제자료 입력 부분에 즉시 적용
-      if (onSaveData) {
-        onSaveData(data);
-      }
-
-      if (onDataChange) {
-        onDataChange(data);
-      }
+      const data = buildHometaxData(parsedResult, familyList, { fileName, fileSize, isOcr });
+      applyHometaxData(data);
 
       // 파싱 및 데이터 반영 완료 -> 프로그레스 바 100% 가속 신호
       setIsUploadComplete(true);
     }, 400);
+  };
+
+  // 분석 결과를 화면·저장소·공제자료 입력에 반영
+  const applyHometaxData = (data) => {
+    setExtractedData(data);
+    try {
+      localStorage.setItem('hometax_extracted_data', JSON.stringify(data));
+    } catch (e) {
+      console.error('Failed to save hometax data', e);
+    }
+    // 공제자료 입력 부분에 즉시 적용
+    if (onSaveData) onSaveData(data);
+    if (onDataChange) onDataChange(data);
+  };
+
+  // PDF에만 있는 가족을 부양가족 목록에 추가하고 다시 매칭 (기본공제에서 빠지는 가족도 의료비 등은 공제)
+  const [unmatchedChoices, setUnmatchedChoices] = useState({});
+  const choiceFor = (p) => unmatchedChoices[p.name] || { relation: guessRelation(p), incomeOver: '초과하지 않음' };
+  const setChoiceFor = (p, patch) => setUnmatchedChoices((prev) => ({ ...prev, [p.name]: { ...choiceFor(p), ...patch } }));
+  const handleAddUnmatched = (p) => {
+    if (!extractedData) return;
+    let familyList = [];
+    try {
+      familyList = getSecureItem('selftax_family_list', []) || [];
+    } catch {
+      familyList = [];
+    }
+    const member = familyMemberFromHometaxPerson(p, choiceFor(p));
+    const nextList = [...familyList, member];
+    setSecureItem('selftax_family_list', nextList);
+    const data = buildHometaxData(extractedData, nextList, {
+      fileName: extractedData.fileName,
+      fileSize: extractedData.size,
+      isOcr: extractedData.isOcr,
+    });
+    applyHometaxData(data);
   };
 
   // 등록된 파일 삭제 (공제자료입력의 국세청자료 자동 삭제 연동)
@@ -811,11 +818,78 @@ export default function HometaxPage({
                   {extractedData.matchedPersons.map((mp, idx) => (
                     <span
                       key={idx}
+                      title={mp.eligibilityNote || undefined}
                       className="px-2 py-0.5 rounded-lg bg-white border border-indigo-200/80 font-bold text-slate-700 text-[11px] shadow-2xs"
                     >
                       {mp.name} {mp.relation ? `(${mp.relation})` : ''}
+                      {mp.eligibilityNote && <span className="ml-1 text-[10px] font-semibold text-amber-600">· 기본공제 제외</span>}
                     </span>
                   ))}
+                  {extractedData.matchedPersons.some((mp) => mp.eligibilityNote) && (
+                    <div className="w-full mt-1 space-y-0.5 text-[11px] text-amber-700 font-medium">
+                      {extractedData.matchedPersons.filter((mp) => mp.eligibilityNote).map((mp, idx) => (
+                        <p key={idx}>· {mp.name}: {mp.eligibilityNote}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 국세청 PDF에는 있지만 부양가족 목록에 없는 사람 → 추가하면 의료비 등 반영 */}
+              {Array.isArray(extractedData?.unmatchedPersons) && extractedData.unmatchedPersons.length > 0 && (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200/90 text-[12px] space-y-2">
+                  <div className="font-extrabold text-amber-800">부양가족 목록에 없어 빠진 자료 ({extractedData.unmatchedPersons.length}명)</div>
+                  <p className="text-[11.5px] text-amber-700 leading-relaxed">
+                    소득요건을 넘어 기본공제를 받지 못하는 가족도 <strong>의료비</strong>는 공제됩니다(나이·소득 요건 없음).
+                    생계를 같이하는 가족이면 관계와 소득요건을 고른 뒤 추가하세요.
+                  </p>
+                  {extractedData.unmatchedPersons.map((p) => {
+                    const c = choiceFor(p);
+                    const it = p.items || {};
+                    const amounts = [
+                      ['보장성', it.insurance_guaranteed], ['의료비', it.medical_general], ['교육비', it.education_child],
+                      ['신용카드', it.credit_card_total], ['직불', it.debit_card_total], ['현금', it.cash_receipt_total], ['기부금', it.donation_amount],
+                    ].filter(([, v]) => Number(v) > 0);
+                    return (
+                      <div key={p.name} className="bg-white rounded-lg border border-amber-200 p-2.5 space-y-2">
+                        <div className="font-bold text-slate-800">
+                          {p.name} <span className="text-slate-400 font-normal">({String(p.rrn || p.birth || '').slice(0, 6)})</span>
+                          <span className="ml-2 text-slate-600 font-medium text-[11px]">
+                            {amounts.map(([k, v]) => `${k} ${Number(v).toLocaleString()}원`).join(' · ') || '공제 자료 없음'}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <select
+                            aria-label={`${p.name} 관계`}
+                            value={c.relation}
+                            onChange={(e) => setChoiceFor(p, { relation: e.target.value })}
+                            className="text-[11px] border border-slate-300 rounded-md px-1.5 py-1 bg-white"
+                          >
+                            <option value="직계존속 (부/모)">직계존속 (부/모)</option>
+                            <option value="자녀,손자녀,입양자">자녀·손자녀·입양자</option>
+                            <option value="형제자매">형제자매</option>
+                            <option value="배우자">배우자</option>
+                          </select>
+                          <select
+                            aria-label={`${p.name} 소득요건`}
+                            value={c.incomeOver}
+                            onChange={(e) => setChoiceFor(p, { incomeOver: e.target.value })}
+                            className="text-[11px] border border-slate-300 rounded-md px-1.5 py-1 bg-white"
+                          >
+                            <option value="초과하지 않음">소득금액 100만 원 이하</option>
+                            <option value="초과함">소득금액 100만 원 초과</option>
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => handleAddUnmatched(p)}
+                            className="text-[11px] font-bold px-2.5 py-1 rounded-md bg-[#4F46E5] text-white hover:bg-indigo-700"
+                          >
+                            부양가족에 추가
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 

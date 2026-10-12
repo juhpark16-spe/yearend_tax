@@ -20,6 +20,11 @@ class DependentValidationDetail(BaseModel):
     is_single_parent: bool = Field(False, description="한부모 추가공제(100만) 해당 여부")
     disqualification_reasons: List[str] = Field(default_factory=list, description="부적격 사유 목록")
     claimed: bool = Field(True, description="화면에서 기본공제를 신청했는지 여부")
+    deductible_expenses: List[str] = Field(
+        default_factory=list,
+        description="이 가족의 지출로 공제받을 수 있는 항목 (보장성보험료·의료비·교육비·신용카드 등·기부금)",
+    )
+    expense_note: str = Field("", description="기본공제 제외 가족도 공제되는 항목 안내")
 
 
 class DuplicateCheckDetail(BaseModel):

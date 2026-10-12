@@ -8,6 +8,44 @@ from typing import Any, Dict, List, Optional
 from backend.schemas.validation_result import DependentValidationDetail
 
 
+EXPENSE_LABELS = ("보장성보험료", "의료비", "교육비", "신용카드 등", "기부금")
+
+
+def deductible_expenses(relation: str, income_ok: bool, age_ok: bool) -> List[str]:
+    """국세청 연말정산 안내 '부양가족 공제요건' 표 기준, 그 가족의 지출로 공제되는 항목.
+
+    - 보장성보험료: 나이·소득 요건 모두 필요
+    - 의료비: 나이·소득 요건 없음 (근로기간 지출분)
+    - 교육비: 소득 요건만 (직계존속 제외 — 장애인특수교육비는 소득 요건 없고 직계존속도 가능)
+    - 신용카드 등: 소득 요건만 (형제자매 제외)
+    - 기부금: 소득 요건만 (정치자금·고향사랑·우리사주조합 기부금은 본인만)
+    """
+    rel = relation.upper()
+    if rel in ("SELF", "본인", "세대주"):
+        return list(EXPENSE_LABELS)
+    is_parent = rel in ("PARENT", "부모", "직계존속", "부", "모")
+    is_sibling = rel in ("SIBLING", "형제자매", "형제", "자매")
+    items = []
+    if income_ok and age_ok:
+        items.append("보장성보험료")
+    items.append("의료비")
+    if income_ok and not is_parent:
+        items.append("교육비")
+    if income_ok and not is_sibling:
+        items.append("신용카드 등")
+    if income_ok:
+        items.append("기부금")
+    return items
+
+
+def expense_note(items: List[str]) -> str:
+    if items == ["의료비"]:
+        return "기본공제는 제외되지만 의료비는 공제됩니다 (나이·소득 요건 없음)."
+    last = items[-1]
+    josa = "은" if (ord(last[-1]) - 0xAC00) % 28 else "는"
+    return f"기본공제는 제외되지만 {'·'.join(items)}{josa} 공제됩니다."
+
+
 class ResidentValidator:
     """부양가족 1인 또는 목록 전체의 기본공제 및 추가공제 법정 적격성을 판정하는 엔진
     """
@@ -54,6 +92,8 @@ class ResidentValidator:
         """
         reasons: List[str] = []
         is_basic_eligible = True
+        income_ok = True
+        age_ok = True
         rel_upper = relation.upper()
 
         age = cls.calculate_age(birth_date, tax_year)
@@ -71,7 +111,8 @@ class ResidentValidator:
                 is_elderly=(age is not None and age >= 70),
                 is_disabled=is_disabled,
                 is_single_parent=False,
-                disqualification_reasons=[]
+                disqualification_reasons=[],
+                deductible_expenses=list(EXPENSE_LABELS),
             )
 
         # -------------------------------------------------------------
@@ -79,11 +120,13 @@ class ResidentValidator:
         # -------------------------------------------------------------
         if annual_income > 1000000:
             is_basic_eligible = False
+            income_ok = False
             reasons.append(
                 f"연간 소득금액({annual_income:,}원)이 법정 기준인 100만 원을 초과하여 기본공제 대상에서 제외됩니다."
             )
         elif income_over_limit:
             is_basic_eligible = False
+            income_ok = False
             reasons.append(
                 "연간 소득금액 100만 원(근로소득만 있으면 총급여 500만 원) 초과로 입력되어 기본공제 대상에서 제외됩니다."
             )
@@ -99,6 +142,7 @@ class ResidentValidator:
                 # 직계존속은 만 60세 이상 (2025년 기준 1965.12.31 이전 출생)
                 if age < 60:
                     is_basic_eligible = False
+                    age_ok = False
                     reasons.append(
                         f"직계존속(만 {age}세)은 만 60세 이상 요건을 미충족합니다 (1965년 12월 31일 이전 출생자만 가능)."
                     )
@@ -106,6 +150,7 @@ class ResidentValidator:
                 # 직계비속은 만 20세 이하 (2025년 기준 2005.01.01 이후 출생)
                 if age > 20:
                     is_basic_eligible = False
+                    age_ok = False
                     reasons.append(
                         f"직계비속(만 {age}세)은 만 20세 이하 요건을 초과합니다 (2005년 1월 1일 이후 출생자만 가능)."
                     )
@@ -113,6 +158,7 @@ class ResidentValidator:
                 # 형제자매는 만 20세 이하 또는 만 60세 이상
                 if 20 < age < 60:
                     is_basic_eligible = False
+                    age_ok = False
                     reasons.append(
                         f"형제자매(만 {age}세)는 만 20세 이하 또는 만 60세 이상 요건을 미충족합니다."
                     )
@@ -126,7 +172,11 @@ class ResidentValidator:
         # 2) 한부모 공제
         is_single_parent = bool(is_single_parent_candidate and is_basic_eligible and rel_upper in ("CHILD", "자녀"))
 
+        expenses = deductible_expenses(rel_upper, income_ok, age_ok)
+
         return DependentValidationDetail(
+            deductible_expenses=expenses,
+            expense_note="" if is_basic_eligible else expense_note(expenses),
             name=name,
             relation=rel_upper,
             age=age,

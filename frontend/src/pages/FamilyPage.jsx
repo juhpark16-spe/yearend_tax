@@ -6,7 +6,7 @@ import UserAuthStatus from '../components/UserAuthStatus';
 import { useAuth } from '../context/AuthContext';
 import { getSecureItem, setSecureItem, maskRrn } from '../utils/secureStorage';
 import { validatePdfFile } from '../utils/fileValidation';
-import { failsAgeRequirement, shouldExcludeBasicDeduction } from '../utils/eligibility';
+import { expenseEligibilityNote, failsAgeRequirement, shouldExcludeBasicDeduction } from '../utils/eligibility';
 import { membersFromProofUpload } from '../utils/proofExtract';
 import { taxService } from '../services/api';
 
@@ -601,6 +601,9 @@ export default function FamilyPage({ onGoHome, onNext, onPrev, onNavigateStep, u
                       <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-600 border border-indigo-200">
                         한부모
                       </span>
+                    )}
+                    {expenseEligibilityNote(item) && (
+                      <span className="w-full text-[10.5px] text-amber-600 font-medium">{expenseEligibilityNote(item)}</span>
                     )}
                   </div>
                   <div className="flex items-center gap-1.5 text-xs text-slate-500 font-medium">

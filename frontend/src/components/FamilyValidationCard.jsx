@@ -82,6 +82,9 @@ export default function FamilyValidationCard({ familyList = [], userName = '' })
                 {r.screenClaimed && !r.serverEligible && r.reasons.map((reason) => (
                   <p key={reason} className="mt-1 text-[11px] text-rose-600">· {reason}</p>
                 ))}
+                {!r.serverEligible && r.expenseNote && (
+                  <p className="mt-1 text-[11px] text-indigo-600 font-medium">· {r.expenseNote}</p>
+                )}
                 {!r.screenClaimed && r.serverEligible && r.relation !== 'SELF' && (
                   <p className="mt-1 text-[11px] text-slate-500">· 요건은 충족하지만 기본공제를 신청하지 않았습니다 (다른 가족이 공제받는 경우라면 그대로 두세요).</p>
                 )}

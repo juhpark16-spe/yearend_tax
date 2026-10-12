@@ -13,7 +13,7 @@ import OtherDeductSection from '../components/tax_sections/OtherDeductSection';
 import DonationCarryoverSection from '../components/tax_sections/DonationCarryoverSection';
 import { getSecureItem, setSecureItem, maskLandlordId, maskRrn } from '../utils/secureStorage';
 import { calculateEarnedIncomeDeduction, calculateSettlementTax } from '../utils/taxCalculator';
-import { shouldExcludeBasicDeduction } from '../utils/eligibility';
+import { isIncomeExcessMember, isSelfOnlyDonationType, shouldExcludeBasicDeduction } from '../utils/eligibility';
 
 /**
  * [Step 3] 공제자료 입력 & 의료비 관리 화면
@@ -990,6 +990,10 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
           const rawName = p.name || loggedInWorkerName || '본인';
           const pName = rawName.replace(/\(.*?\)/g, '').trim();
           const pRel = p.relation || '본인';
+          // 기부금 공제요건: 부양가족은 소득요건(100만 원 이하)만 적용, 나이 요건 없음
+          const donFam = familyMembers.find((m) => (m.name || '').replace(/\(.*?\)/g, '').trim() === pName);
+          const isSelfDonor = pRel === '본인' || Boolean(donFam?.isSelf || donFam?.relation === '본인') || pName === loggedInWorkerName;
+          if (!isSelfDonor && (p.income_excess || (donFam && isIncomeExcessMember(donFam)))) return;
 
           const donDetails = Array.isArray(p.donation_details) && p.donation_details.length > 0
             ? p.donation_details
@@ -997,6 +1001,8 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
 
           if (donDetails.length > 0) {
             donDetails.forEach((d, dIdx) => {
+              // 정치자금·고향사랑·우리사주조합 기부금은 본인 지출분만 공제
+              if (!isSelfDonor && isSelfOnlyDonationType(d.type || d.donation_type || d.기부유형 || '')) return;
               const rawRew = d.reward_amount ?? d.rewardAmount ?? d.기부장려금신청금액 ?? d.기부장려금 ?? d.장려금 ?? 0;
               const cleanRew = String(rawRew).replace(/[^0-9]/g, '');
               const rewardNum = cleanRew ? parseInt(cleanRew, 10) : 0;
