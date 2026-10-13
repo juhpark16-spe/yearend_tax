@@ -83,10 +83,10 @@ export default function App() {
   const [completedMenus, setCompletedMenus] = useState(new Set());
 
   // 예상세액 상세결과 데이터 (AI 연말정산 리포트로 전달)
-  const [aiReportData, setAiReportData] = useState(null);
+  const [aiReportData, setAiReportDataState] = useState(null);
 
   // 국세청 간소화 PDF에서 추출된 공제 데이터 (HometaxPage → DataInputPage 전달)
-  const [hometaxExtractedData, setHometaxExtractedData] = useState(() => {
+  const [hometaxExtractedData, setHometaxExtractedDataState] = useState(() => {
     try {
       const saved = localStorage.getItem('hometax_extracted_data');
       if (saved) {
@@ -97,6 +97,19 @@ export default function App() {
       return null;
     }
   });
+
+  // 최신 PDF 추출·AI 리포트 값을 즉시 참조하기 위한 ref
+  // (setState 직후 같은 이벤트 안에서 저장하면 이전 값(null)이 저장돼 국세청 자료가 지워지던 문제 방지)
+  const hometaxDataRef = useRef(hometaxExtractedData);
+  const aiReportDataRef = useRef(aiReportData);
+  const setHometaxExtractedData = (d) => {
+    hometaxDataRef.current = d;
+    setHometaxExtractedDataState(d);
+  };
+  const setAiReportData = (d) => {
+    aiReportDataRef.current = d;
+    setAiReportDataState(d);
+  };
 
   // 1) 최초 로드 시: 브라우저 탭/창을 닫았다가 다시 열었을 때 게스트 세션 만료 검사 및 잔여 자료 리셋
   //    (인증 상태 확인 중에는 로그인 사용자를 게스트로 오인하여 자료를 지우지 않도록 대기)
@@ -238,8 +251,8 @@ export default function App() {
     if (isLoggingOutRef.current) return;
     const effectiveId = user?.id || 'guest';
     saveUserData(effectiveId, {
-      aiReportData,
-      hometaxExtractedData,
+      aiReportData: aiReportDataRef.current,
+      hometaxExtractedData: hometaxDataRef.current,
       taxProgress,
       completedMenus,
       ...extra,
@@ -259,7 +272,7 @@ export default function App() {
       const next = new Set(prev);
       next.add(menuId);
       localStorage.setItem(`completedMenus_${effectiveId}`, JSON.stringify([...next]));
-      saveUserData(effectiveId, { completedMenus: next, taxProgress, hometaxExtractedData, aiReportData });
+      saveUserData(effectiveId, { completedMenus: next, taxProgress, hometaxExtractedData: hometaxDataRef.current, aiReportData: aiReportDataRef.current });
       return next;
     });
   };
@@ -270,7 +283,7 @@ export default function App() {
       const next = new Set(prev);
       next.delete(menuId);
       localStorage.setItem(`completedMenus_${effectiveId}`, JSON.stringify([...next]));
-      saveUserData(effectiveId, { completedMenus: next, taxProgress, hometaxExtractedData, aiReportData });
+      saveUserData(effectiveId, { completedMenus: next, taxProgress, hometaxExtractedData: hometaxDataRef.current, aiReportData: aiReportDataRef.current });
       return next;
     });
   };
@@ -288,7 +301,7 @@ export default function App() {
         next = Math.max(prev, level);
       }
       localStorage.setItem(`taxProgress_${effectiveId}`, String(next));
-      saveUserData(effectiveId, { taxProgress: next, completedMenus, hometaxExtractedData, aiReportData });
+      saveUserData(effectiveId, { taxProgress: next, completedMenus, hometaxExtractedData: hometaxDataRef.current, aiReportData: aiReportDataRef.current });
       return next;
     });
   };
@@ -360,8 +373,8 @@ export default function App() {
   const handleGoToIntro = () => {
     const effectiveId = user?.id || 'guest';
     saveUserData(effectiveId, {
-      aiReportData,
-      hometaxExtractedData,
+      aiReportData: aiReportDataRef.current,
+      hometaxExtractedData: hometaxDataRef.current,
       taxProgress,
       completedMenus,
     });
@@ -375,8 +388,8 @@ export default function App() {
     // 1. 현재 로그인 사용자의 최신 상태(입력 자료, PDF 추출 자료 등)를 세션/영구 저장소에 최종 저장 확정
     if (effectiveId) {
       saveUserData(effectiveId, {
-        aiReportData,
-        hometaxExtractedData,
+        aiReportData: aiReportDataRef.current,
+        hometaxExtractedData: hometaxDataRef.current,
         taxProgress,
         completedMenus,
       });
