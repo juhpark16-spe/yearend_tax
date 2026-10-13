@@ -10,7 +10,8 @@
     "test:storage": "node tests/secureStorage.test.mjs",
     "test:validate": "node tests/validationRequest.test.mjs",
     "test:proof": "node tests/proofExtract.test.mjs",
-    "test:hometax": "node tests/hometaxMatch.test.mjs"
+    "test:hometax": "node tests/hometaxMatch.test.mjs",
+    "test:nts": "node tests/ntsChecklist.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",

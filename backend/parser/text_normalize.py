@@ -64,5 +64,5 @@ def fix_broken_hangul(text: str, force: bool = False) -> str:
 def fix_broken_tables(tables, force: bool):
     if not force or not tables:
         return tables
-    return [[[fix_broken_hangul(c, force=True) if isinstance(c, str) else c for c in row]
-             for row in table] for table in tables]
+    return [[[fix_broken_hangul(c, force=True) if isinstance(c, str) else c for c in (row or [])]
+             for row in (table or [])] for table in tables]

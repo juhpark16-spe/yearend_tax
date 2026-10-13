@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { buildNtsSmallBizItems } from '../../utils/ntsChecklistItems';
 import { calculateEarnedIncomeDeduction } from '../../utils/taxCalculator';
 
 /**
@@ -145,13 +146,6 @@ export default function SmallBizSection({
               return p.small_biz_details[0];
             }
           }
-        }
-        const rawStr = JSON.stringify(parsed);
-        if (rawStr.includes('소기업') || rawStr.includes('공제부금') || rawStr.includes('노란우산')) {
-          let bType = '법인대표자';
-          if (rawStr.includes('개인사업자')) bType = '개인사업자';
-          else if (rawStr.includes('법인대표자') || rawStr.includes('법인 대표자')) bType = '법인대표자';
-          return { bizType: bType };
         }
       }
     } catch {}
@@ -745,25 +739,10 @@ export default function SmallBizSection({
                     return false;
                   })();
 
-                  if (hasHometaxPdf) {
-                    const cleanWorkerName = (workerName || '본인').replace(/\(.*?\)/g, '').trim();
-                    const detected = getDetectedHometaxSmallBiz();
-                    const defaultNtsSmallBiz = [
-                      {
-                        id: 'nts_sbiz_1',
-                        name: detected?.name || cleanWorkerName,
-                        relation: '본인',
-                        type: detected?.type || '소기업소상공인 공제부금',
-                        bizType: detected?.bizType || '법인대표자',
-                        joinPeriod: detected?.joinPeriod || '2016년 이후 가입',
-                        bank: detected?.bank || '중소기업중앙회',
-                        account: detected?.account || '100-82-123456',
-                        contractNo: detected?.contractNo || '100-82-123456',
-                        amount: Number(detected?.amount) || 5000000,
-                        isNts: true,
-                        source: 'nts',
-                      },
-                    ];
+                  const cleanWorkerName = (workerName || '본인').replace(/\(.*?\)/g, '').trim();
+                  // PDF 표에서 읽은 행만 사용 (PDF에 이 항목이 없으면 직접 입력 화면으로)
+                  const defaultNtsSmallBiz = hasHometaxPdf ? buildNtsSmallBizItems(hometaxData, cleanWorkerName) : [];
+                  if (defaultNtsSmallBiz.length > 0) {
                     setItems((prev) => {
                       const others = prev.filter((i) => !i.isNts && i.source !== 'nts');
                       return [...others, ...defaultNtsSmallBiz];
@@ -777,7 +756,7 @@ export default function SmallBizSection({
                       }
                     );
                   } else {
-                    // 국세청 PDF 자료를 삭제했거나 업로드 자료가 없을 경우: 국세청자료 미표시 및 기타자료 추가 페이지로 바로 이동
+                    // 국세청 PDF가 없거나 PDF에 이 항목 자료가 없을 경우: 국세청자료 미표시 및 기타자료 추가 페이지로 바로 이동
                     setItems((prev) => prev.filter((i) => !i.isNts && i.source !== 'nts'));
                     setChecklistAnswer('yes');
                     handleOpenAdd();

@@ -7,6 +7,12 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Tuple
 from backend.security.pii_mask import PIIMasker
+from backend.parser.nts_tables import (
+    parse_housing_savings_rows,
+    parse_long_invest_rows,
+    parse_mortgage_rows,
+    parse_rent_loan_rows,
+)
 from backend.parser.nts_sections import (
     age_in_tax_year,
     build_education_item,
@@ -1789,41 +1795,17 @@ class DocumentEntityExtractor:
                     person["items"]["long_invest_amount"] = person["items"].get("long_invest_amount", 0) + val
 
                 if any(k in section_title for k in ["장기집합", "청년"]):
-                    if "중소기업은행" in clean_p or "250084112345" in clean_p:
-                        # 일반 장기집합: 2015-12-31 이전 가입분만 공제 (가입일자 2016-04-30이므로 0원 공제)
-                        person["long_invest_details"].append({
-                            "company": "중소기업은행",
-                            "fundName": "KKK 10년투자 증권투자신탁",
-                            "account": "KKK 10년투자 증권투자신탁",
-                            "accountNo": "250084112345",
-                            "type": "장기집합투자증권저축",
-                            "startDate": "2016-04-30",
-                            "payYear": "2025",
-                            "raw_amount": 6000000,
-                            "deductible_amount": 0,
-                            "amount": 0
-                        })
-                    if "현대차증권" in clean_p or "85475501112345" in clean_p:
-                        # 청년형: 2023-12-31까지 가입분만 공제 (가입일자 2025-03-26이므로 0원 공제)
-                        person["long_invest_details"].append({
-                            "company": "현대차증권 주식회사",
-                            "fundName": "(청년형)UUU 증권 투자신탁",
-                            "account": "(청년형)UUU 증권 투자신탁",
-                            "accountNo": "85475501112345",
-                            "type": "청년형 장기집합투자증권저축",
-                            "startDate": "2025-03-26",
-                            "payYear": "2025",
-                            "raw_amount": 500000,
-                            "deductible_amount": 0,
-                            "amount": 0
-                        })
+                    # 계좌별 상세는 표(tables)에서 일괄 추출 (nts_tables.parse_long_invest_rows)
+                    pass
                 else:
                     # 벤처기업투자신탁: 2025, 2024, 2023 페이지별 추출
                     v_matches = re.findall(
                         r'(\d{4})\s+([0-9\-\*]{6,25})\s+([가-힣\w\(\)\s]{2,25}?)\s+([\d,]{4,})',
                         clean_p
                     )
-                    comp_name = "유안타증권 주식회사" if "유안타" in clean_p else "(주)국민은행"
+                    # 취급기관명: 표 머리글 '(사업자번호)' 다음 줄 (예: (주)국민은행)
+                    m_comp = re.search(r'\(사업자번호\)\s*\n\s*([^\n\d][^\n]*?)\s*\n', clean_p)
+                    comp_name = m_comp.group(1).strip() if m_comp else "취급기관"
                     for vm in v_matches:
                         v_year, v_acc, v_name, v_amt_str = vm
                         v_amt = int(v_amt_str.replace(",", ""))
@@ -1916,7 +1898,9 @@ class DocumentEntityExtractor:
                 join_period = "2016년 이전 가입" if (join_date and join_date < "2016-01-01") else "2016년 이후 가입"
 
                 p_name = person.get("name", "본인")
-                sbiz_amount = val if val > 0 else 5000000
+                sbiz_amount = val
+                if sbiz_amount <= 0:
+                    continue  # 납입금액을 읽지 못하면 임의 금액을 넣지 않는다
                 sbiz_item = {
                     "id": f"nts_sbiz_{len(results.get('small_biz_details', [])) + 1}",
                     "name": p_name,
@@ -1924,10 +1908,10 @@ class DocumentEntityExtractor:
                     "type": "소기업소상공인 공제부금",
                     "bizType": biz_type,
                     "joinPeriod": join_period,
-                    "joinDate": join_date or "2016-09-22",
+                    "joinDate": join_date,
                     "bank": "중소기업중앙회",
-                    "account": acc_no or "100-82-123456",
-                    "contractNo": acc_no or "100-82-123456",
+                    "account": acc_no,
+                    "contractNo": acc_no,
                     "amount": sbiz_amount,
                     "raw_amount": sbiz_amount,
                     "isNts": True,
@@ -2016,6 +2000,26 @@ class DocumentEntityExtractor:
         results["credit_card_culture"] = results.get("credit_card_culture", 0)
         results["debit_card_culture"] = results.get("debit_card_culture", 0)
         results["cash_receipt_culture"] = results.get("cash_receipt_culture", 0)
+
+        # 체크리스트 항목(주택자금·주택마련저축·장기집합투자증권저축) 상세는 표에서 행 단위로 추출 (본인 명의 자료)
+        rent_loans = parse_rent_loan_rows(tables)
+        mortgages = parse_mortgage_rows(tables)
+        savings = parse_housing_savings_rows(tables)
+        long_invest_rows = parse_long_invest_rows(tables)
+        results["housing_loan_details"] = rent_loans + mortgages
+        results["housing_savings_details"] = savings
+        if rent_loans:
+            results["housing_rent_loan"] = sum(r["amount"] for r in rent_loans)
+        if mortgages:
+            results["housing_mortgage_interest"] = sum(r["amount"] for r in mortgages)
+        if savings:
+            results["housing_subscription"] = sum(r["amount"] for r in savings)
+        if long_invest_rows and persons_map:
+            self_person = next(iter(persons_map.values()))
+            self_person.setdefault("long_invest_details", [])
+            self_person["long_invest_details"] = long_invest_rows + [
+                d for d in self_person["long_invest_details"] if d.get("type") == "벤처투자조합 출자"
+            ]
 
         # 3. 인별(본인 및 부양가족) 추출 결과 리스트화 (요구사항 2 지원)
         person_list = list(persons_map.values())

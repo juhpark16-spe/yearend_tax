@@ -13,6 +13,7 @@ import OtherDeductSection from '../components/tax_sections/OtherDeductSection';
 import DonationCarryoverSection from '../components/tax_sections/DonationCarryoverSection';
 import { getSecureItem, setSecureItem, maskLandlordId, maskRrn } from '../utils/secureStorage';
 import { calculateEarnedIncomeDeduction, calculateSettlementTax } from '../utils/taxCalculator';
+import { buildNtsHousingLoanItems, buildNtsHousingSavingsItems, buildNtsSmallBizItems, hasCurrentNtsItems, ntsSourceKey } from '../utils/ntsChecklistItems';
 import { isIncomeExcessMember, isSelfOnlyDonationType, shouldExcludeBasicDeduction } from '../utils/eligibility';
 
 /**
@@ -3816,103 +3817,16 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
       return;
     }
 
+    const ntsKey = ntsSourceKey(currentData);
     const cleanWorkerName = (loggedInWorkerName || '본인').replace(/\(.*?\)/g, '').trim();
 
-    // 1. 주택자금 자동 작성 (국세청 PDF 증명서류: 주택임차 3건 + 장기주택저당 2건)
+    // 1. 주택자금 자동 작성 (국세청 PDF 표에서 읽은 주택임차차입금·장기주택저당차입금 행)
     if (housingLoanChecklistAnswer === 'yes') {
       setHousingLoanItems((prev) => {
         const others = prev.filter((i) => !i.isNts && i.source !== 'nts');
-        const hasNts = prev.some((i) => i.isNts || i.source === 'nts');
+        const hasNts = hasCurrentNtsItems(prev, ntsKey); // 같은 PDF로 이미 만든 항목이면 유지(사용자 수정 보존)
         if (!hasNts) {
-          const ntsHousingLoan = [
-            // 주택임차차입금 (전세대출 원리금상환액) 3건
-            {
-              id: 'nts_hloan_rent_1',
-              name: cleanWorkerName,
-              relation: '본인',
-              type: '주택임차차입금(대출기관)',
-              bank: '(주)우리은행',
-              bizNumber: '201-81-02819',
-              account: '1320400123456',
-              startDate: '2013-05-31',
-              endDate: '',
-              period: '',
-              acquisitionDate: '',
-              mortgageDate: '',
-              amount: 1515720,
-              isNts: true,
-              source: 'nts',
-            },
-            {
-              id: 'nts_hloan_rent_2',
-              name: cleanWorkerName,
-              relation: '본인',
-              type: '주택임차차입금(대출기관)',
-              bank: '(주)국민은행',
-              bizNumber: '201-81-68693',
-              account: '64800901234567',
-              startDate: '2018-08-26',
-              endDate: '',
-              period: '',
-              acquisitionDate: '',
-              mortgageDate: '',
-              amount: 3223401,
-              isNts: true,
-              source: 'nts',
-            },
-            {
-              id: 'nts_hloan_rent_3',
-              name: cleanWorkerName,
-              relation: '본인',
-              type: '주택임차차입금(대출기관)',
-              bank: '(주)국민은행',
-              bizNumber: '201-81-68693',
-              account: '64800901234568',
-              startDate: '2019-07-28',
-              endDate: '',
-              period: '',
-              acquisitionDate: '',
-              mortgageDate: '',
-              amount: 1984847,
-              isNts: true,
-              source: 'nts',
-            },
-            // 장기주택저당차입금 (담보대출 이자상환액) 2건
-            {
-              id: 'nts_hloan_mort_1',
-              name: cleanWorkerName,
-              relation: '본인',
-              type: '장기주택저당차입금(2012이후 15년이상 고정OR비거치)',
-              bank: 'S.K종합공사',
-              bizNumber: '209-06-29912',
-              account: '주택자금대출(주택구입자금대출)',
-              startDate: '2020-08-31',
-              endDate: '2040-08-31',
-              period: '20년',
-              acquisitionDate: '2022-08-30',
-              mortgageDate: '2022-08-31',
-              amount: 1770512,
-              isNts: true,
-              source: 'nts',
-            },
-            {
-              id: 'nts_hloan_mort_2',
-              name: cleanWorkerName,
-              relation: '본인',
-              type: '장기주택저당차입금(2012이후 15년이상 기타)',
-              bank: '농협은행 주식회사',
-              bizNumber: '104-86-39742',
-              account: '주택자금대출',
-              startDate: '2016-05-15',
-              endDate: '2036-05-15',
-              period: '20년',
-              acquisitionDate: '2023-01-02',
-              mortgageDate: '2023-01-02',
-              amount: 7167652,
-              isNts: true,
-              source: 'nts',
-            },
-          ];
+          const ntsHousingLoan = buildNtsHousingLoanItems(currentData, cleanWorkerName, ntsKey);
           return [...others, ...ntsHousingLoan];
         }
         return prev;
@@ -3921,40 +3835,13 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
       setHousingLoanItems((prev) => prev.filter((i) => !i.isNts && i.source !== 'nts'));
     }
 
-    // 2. 주택마련저축 자동 작성 (국세청 자료: 청약저축 120만 + 주택청약종합저축 180만)
+    // 2. 주택마련저축 자동 작성 (국세청 PDF 표에서 읽은 계좌별 납입금액)
     if (housingSavingsChecklistAnswer === 'yes') {
       setHousingSavingsItems((prev) => {
         const others = prev.filter((i) => !i.isNts && i.source !== 'nts');
-        const hasNts = prev.some((i) => i.isNts || i.source === 'nts');
+        const hasNts = hasCurrentNtsItems(prev, ntsKey); // 같은 PDF로 이미 만든 항목이면 유지(사용자 수정 보존)
         if (!hasNts) {
-          const ntsSavings = [
-            {
-              id: 'nts_hsavings_1',
-              name: cleanWorkerName,
-              relation: '본인',
-              type: '청약저축',
-              bank: '우리은행',
-              account: '1002-123-456789',
-              amount: 1200000,
-              joinDate: '2014-05-10',
-              isTerminated: false,
-              isNts: true,
-              source: 'nts',
-            },
-            {
-              id: 'nts_hsavings_2',
-              name: cleanWorkerName,
-              relation: '본인',
-              type: '주택청약종합저축',
-              bank: 'KB국민은행',
-              account: '987602-01-234567',
-              amount: 1800000,
-              joinDate: '2018-09-15',
-              isTerminated: false,
-              isNts: true,
-              source: 'nts',
-            },
-          ];
+          const ntsSavings = buildNtsHousingSavingsItems(currentData, cleanWorkerName, ntsKey);
           return [...others, ...ntsSavings];
         }
         return prev;
@@ -3967,7 +3854,7 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
     if (rentChecklistAnswer === 'yes') {
       setRentItems((prev) => {
         const others = prev.filter((i) => !i.isNts && i.source !== 'nts');
-        const hasNts = prev.some((i) => i.isNts || i.source === 'nts');
+        const hasNts = hasCurrentNtsItems(prev, ntsKey); // 같은 PDF로 이미 만든 항목이면 유지(사용자 수정 보존)
         if (!hasNts) {
           let effData = currentData;
           if (!effData?.rent_details || effData.rent_details.length === 0) {
@@ -4007,6 +3894,7 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
               amount: Number(pd.amount || 0),
               isNts: true,
               source: 'nts',
+              ntsKey,
             }));
             return [...others, ...ntsRent];
           } else if (Number(effData?.monthly_rent_paid) > 0) {
@@ -4026,6 +3914,7 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
                 amount: Number(effData.monthly_rent_paid),
                 isNts: true,
                 source: 'nts',
+                ntsKey,
               },
             ];
           }
@@ -4055,64 +3944,10 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
       if (hasHometaxPdf) {
         setSmallBizItems((prev) => {
           const others = prev.filter((i) => !i.isNts && i.source !== 'nts');
-          const hasNts = prev.some((i) => i.isNts || i.source === 'nts');
+          const hasNts = hasCurrentNtsItems(prev, ntsKey); // 같은 PDF로 이미 만든 항목이면 유지(사용자 수정 보존)
           if (!hasNts) {
-            let detected = null;
-            let sDetails = hometaxData?.small_biz_details || hometaxData?.summary?.small_biz_details;
-            if (Array.isArray(sDetails) && sDetails.length > 0) detected = sDetails[0];
-            if (!detected) {
-              const persons = hometaxData?.matchedPersons || hometaxData?.persons || [];
-              for (const p of persons) {
-                if (Array.isArray(p.small_biz_details) && p.small_biz_details.length > 0) {
-                  detected = p.small_biz_details[0];
-                  break;
-                }
-              }
-            }
-            if (!detected) {
-              try {
-                const saved = localStorage.getItem('hometax_extracted_data');
-                if (saved) {
-                  const parsed = JSON.parse(saved);
-                  const pDetails = parsed?.small_biz_details || parsed?.summary?.small_biz_details;
-                  if (Array.isArray(pDetails) && pDetails.length > 0) detected = pDetails[0];
-                  if (!detected && Array.isArray(parsed?.persons)) {
-                    for (const p of parsed.persons) {
-                      if (Array.isArray(p.small_biz_details) && p.small_biz_details.length > 0) {
-                        detected = p.small_biz_details[0];
-                        break;
-                      }
-                    }
-                  }
-                  if (!detected) {
-                    const rawStr = JSON.stringify(parsed);
-                    if (rawStr.includes('소기업') || rawStr.includes('공제부금') || rawStr.includes('노란우산')) {
-                      let bType = '법인대표자';
-                      if (rawStr.includes('개인사업자')) bType = '개인사업자';
-                      else if (rawStr.includes('법인대표자') || rawStr.includes('법인 대표자')) bType = '법인대표자';
-                      detected = { bizType: bType };
-                    }
-                  }
-                }
-              } catch {}
-            }
-
-            const ntsSmallBiz = [
-              {
-                id: 'nts_sbiz_1',
-                name: detected?.name || cleanWorkerName,
-                relation: '본인',
-                type: detected?.type || '소기업소상공인 공제부금',
-                bizType: detected?.bizType || '법인대표자',
-                joinPeriod: detected?.joinPeriod || '2016년 이후 가입',
-                bank: detected?.bank || '중소기업중앙회',
-                account: detected?.account || '100-82-123456',
-                contractNo: detected?.contractNo || '100-82-123456',
-                amount: Number(detected?.amount) || 5000000,
-                isNts: true,
-                source: 'nts',
-              },
-            ];
+            // PDF에 소기업·소상공인 공제부금 자료가 있을 때만 작성 (임의 금액을 넣지 않음)
+            const ntsSmallBiz = buildNtsSmallBizItems(hometaxData, cleanWorkerName, ntsKey);
             return [...others, ...ntsSmallBiz];
           }
           return prev;

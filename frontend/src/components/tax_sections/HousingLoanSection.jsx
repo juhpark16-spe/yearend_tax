@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { buildNtsHousingLoanItems } from '../../utils/ntsChecklistItems';
 
 /**
  * [주택자금] 상세 화면 컴포넌트
@@ -898,97 +899,10 @@ export default function HousingLoanSection({
                     return false;
                   })();
 
-                  if (hasHometaxPdf) {
-                    const cleanWorkerName = (workerName || '본인').replace(/\(.*?\)/g, '').trim();
-                    const defaultNtsHousingLoan = [
-                      // 주택임차차입금 (전세대출 원리금상환액) 3건
-                      {
-                        id: 'nts_hloan_rent_1',
-                        name: cleanWorkerName,
-                        relation: '본인',
-                        type: '주택임차차입금(대출기관)',
-                        bank: '(주)우리은행',
-                        bizNumber: '201-81-02819',
-                        account: '1320400123456',
-                        startDate: '2013-05-31',
-                        endDate: '',
-                        period: '',
-                        acquisitionDate: '',
-                        mortgageDate: '',
-                        amount: 1515720,
-                        isNts: true,
-                        source: 'nts',
-                      },
-                      {
-                        id: 'nts_hloan_rent_2',
-                        name: cleanWorkerName,
-                        relation: '본인',
-                        type: '주택임차차입금(대출기관)',
-                        bank: '(주)국민은행',
-                        bizNumber: '201-81-68693',
-                        account: '64800901234567',
-                        startDate: '2018-08-26',
-                        endDate: '',
-                        period: '',
-                        acquisitionDate: '',
-                        mortgageDate: '',
-                        amount: 3223401,
-                        isNts: true,
-                        source: 'nts',
-                      },
-                      {
-                        id: 'nts_hloan_rent_3',
-                        name: cleanWorkerName,
-                        relation: '본인',
-                        type: '주택임차차입금(대출기관)',
-                        bank: '(주)국민은행',
-                        bizNumber: '201-81-68693',
-                        account: '64800901234568',
-                        startDate: '2019-07-28',
-                        endDate: '',
-                        period: '',
-                        acquisitionDate: '',
-                        mortgageDate: '',
-                        amount: 1984847,
-                        isNts: true,
-                        source: 'nts',
-                      },
-                      // 장기주택저당차입금 (담보대출 이자상환액) 2건
-                      {
-                        id: 'nts_hloan_mort_1',
-                        name: cleanWorkerName,
-                        relation: '본인',
-                        type: '장기주택저당차입금(2012이후 15년이상 고정OR비거치)',
-                        bank: 'S.K종합공사',
-                        bizNumber: '209-06-29912',
-                        account: '주택자금대출(주택구입자금대출)',
-                        startDate: '2020-08-31',
-                        endDate: '2040-08-31',
-                        period: '20년',
-                        acquisitionDate: '2022-08-30',
-                        mortgageDate: '2022-08-31',
-                        amount: 1770512,
-                        isNts: true,
-                        source: 'nts',
-                      },
-                      {
-                        id: 'nts_hloan_mort_2',
-                        name: cleanWorkerName,
-                        relation: '본인',
-                        type: '장기주택저당차입금(2012이후 15년이상 기타)',
-                        bank: '농협은행 주식회사',
-                        bizNumber: '104-86-39742',
-                        account: '주택자금대출',
-                        startDate: '2016-05-15',
-                        endDate: '2036-05-15',
-                        period: '20년',
-                        acquisitionDate: '2023-01-02',
-                        mortgageDate: '2023-01-02',
-                        amount: 7167652,
-                        isNts: true,
-                        source: 'nts',
-                      },
-                    ];
+                  const cleanWorkerName = (workerName || '본인').replace(/\(.*?\)/g, '').trim();
+                  // PDF 표에서 읽은 행만 사용 (PDF에 이 항목이 없으면 직접 입력 화면으로)
+                  const defaultNtsHousingLoan = hasHometaxPdf ? buildNtsHousingLoanItems(hometaxData, cleanWorkerName) : [];
+                  if (defaultNtsHousingLoan.length > 0) {
                     setItems((prev) => {
                       const others = prev.filter((i) => !i.isNts && i.source !== 'nts');
                       return [...others, ...defaultNtsHousingLoan];
@@ -1002,7 +916,7 @@ export default function HousingLoanSection({
                       }
                     );
                   } else {
-                    // 국세청 PDF 자료를 삭제했거나 업로드 자료가 없을 경우: 국세청자료 미표시 및 기타자료 추가 페이지로 바로 이동
+                    // 국세청 PDF가 없거나 PDF에 이 항목 자료가 없을 경우: 국세청자료 미표시 및 기타자료 추가 페이지로 바로 이동
                     setItems((prev) => prev.filter((i) => !i.isNts && i.source !== 'nts'));
                     setChecklistAnswer('yes');
                     handleOpenAdd();

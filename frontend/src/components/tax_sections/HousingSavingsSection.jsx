@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { buildNtsHousingSavingsItems } from '../../utils/ntsChecklistItems';
 
 /**
  * [주택마련저축] 상세 화면 컴포넌트
@@ -805,36 +806,10 @@ export default function HousingSavingsSection({
                     return false;
                   })();
 
-                  if (hasHometaxPdf) {
-                    const cleanWorkerName = (workerName || '본인').replace(/\(.*?\)/g, '').trim();
-                    const defaultNtsHousingSavings = [
-                      {
-                        id: 'nts_hsavings_1',
-                        name: cleanWorkerName,
-                        relation: '본인',
-                        type: '청약저축',
-                        bank: '우리은행',
-                        account: '1002-123-456789',
-                        amount: 1200000,
-                        joinDate: '2014-05-10',
-                        isTerminated: false,
-                        isNts: true,
-                        source: 'nts',
-                      },
-                      {
-                        id: 'nts_hsavings_2',
-                        name: cleanWorkerName,
-                        relation: '본인',
-                        type: '주택청약종합저축',
-                        bank: 'KB국민은행',
-                        account: '987602-01-234567',
-                        amount: 1800000,
-                        joinDate: '2018-09-15',
-                        isTerminated: false,
-                        isNts: true,
-                        source: 'nts',
-                      },
-                    ];
+                  const cleanWorkerName = (workerName || '본인').replace(/\(.*?\)/g, '').trim();
+                  // PDF 표에서 읽은 행만 사용 (PDF에 이 항목이 없으면 직접 입력 화면으로)
+                  const defaultNtsHousingSavings = hasHometaxPdf ? buildNtsHousingSavingsItems(hometaxData, cleanWorkerName) : [];
+                  if (defaultNtsHousingSavings.length > 0) {
                     setItems((prev) => {
                       const others = prev.filter((i) => !i.isNts && i.source !== 'nts');
                       return [...others, ...defaultNtsHousingSavings];
@@ -848,7 +823,7 @@ export default function HousingSavingsSection({
                       }
                     );
                   } else {
-                    // 국세청 PDF 자료를 삭제했거나 업로드 자료가 없을 경우: 국세청자료 미표시 및 기타자료 추가 페이지로 바로 이동
+                    // 국세청 PDF가 없거나 PDF에 이 항목 자료가 없을 경우: 국세청자료 미표시 및 기타자료 추가 페이지로 바로 이동
                     setItems((prev) => prev.filter((i) => !i.isNts && i.source !== 'nts'));
                     setChecklistAnswer('yes');
                     handleOpenAdd();
