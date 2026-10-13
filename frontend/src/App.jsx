@@ -673,7 +673,7 @@ export default function App() {
               onGoHome={goHome}
               onPrev={goHome}
               onNavigateStep={navigateToStep}
-              userName={profile?.name || user?.user_metadata?.full_name || '최지연'}
+              userName={profile?.name || user?.user_metadata?.full_name || '근로자'}
             />
           )}
 

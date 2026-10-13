@@ -722,7 +722,7 @@ export default function AiReportPage({
                               <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-emerald-100/70 text-emerald-700 font-medium">기본공제</span>
                             </div>
                             <span className="font-mono font-bold text-slate-900">
-                              {(effectiveTaxData?.humanDeductions?.spouse ?? 1500000).toLocaleString()}원
+                              {(effectiveTaxData?.humanDeductions?.spouse ?? 0).toLocaleString()}원
                             </span>
                           </div>
                           {(effectiveTaxData?.humanDeductions?.dependents || 0) > 0 && (

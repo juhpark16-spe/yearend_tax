@@ -84,8 +84,8 @@ export default function FamilyPage({ onGoHome, onNext, onPrev, onNavigateStep, u
 
   // 3. 간편인증 정보 입력 상태 (Image 1)
   const [selectedAuthProvider, setSelectedAuthProvider] = useState('kakao');
-  const [authName, setAuthName] = useState('최지연');
-  const [authBirth, setAuthBirth] = useState('1979-05-01');
+  const [authName, setAuthName] = useState('');
+  const [authBirth, setAuthBirth] = useState('');
 
   // 4. 자료 조회 로딩 진행률 (Image 5)
   const [inquiryProgress, setInquiryProgress] = useState(0);

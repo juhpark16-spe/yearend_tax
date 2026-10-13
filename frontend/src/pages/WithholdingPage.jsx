@@ -111,7 +111,7 @@ export default function WithholdingPage({
     if (stripped && stripped.length >= 2 && !stripped.match(/^\d+$/)) {
       return stripped.startsWith('(') ? stripped : `(주)${stripped}`;
     }
-    return '(주)에이아이테크';
+    return '';
   };
 
   // 파일 업로드 처리 및 실제 백엔드 파싱 / 추출
@@ -646,25 +646,23 @@ export default function WithholdingPage({
                 /* 샘플 또는 텍스트 서류 열람 시: 실제 추출된 회사명과 금액이 일치하도록 동적 렌더링 */
                 <div className="p-4 text-slate-800 text-[11px] leading-tight select-text font-sans bg-[#FBFBFA]">
                   <div className="border border-slate-400 p-3 bg-white space-y-3">
-                    {/* 문서 타이틀 */}
+                    {/* 원본 파일이 없을 때: 공식 서식처럼 보이지 않도록 입력·추출 값 요약만 표시 */}
                     <div className="text-center pb-2 border-b-2 border-slate-800">
-                      <div className="text-[10px] text-slate-500">[소득세법 시행규칙 별지 제24호서식]</div>
-                      <h3 className="text-base font-extrabold text-slate-900 tracking-wider mt-0.5">
-                        근로소득 원천징수영수증
+                      <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
+                        원천징수영수증 입력 내용 요약
                       </h3>
-                      <div className="text-[10px] text-slate-600 mt-0.5 font-medium">
-                        ( [ ✓ ] 소득자 보관용  [  ] 발행자 보고용  [  ] 발행자 보관용 )
+                      <div className="text-[10px] text-amber-700 mt-0.5 font-medium">
+                        원본 PDF가 없어 입력·추출된 값만 보여 줍니다 (공식 서류 아님)
                       </div>
                     </div>
 
                     {/* 기본 인적사항 / 회사 정보 */}
                     <div className="grid grid-cols-2 gap-1 text-[10px] bg-slate-50 p-2 border border-slate-200 rounded">
-                      <div><strong className="text-slate-500">징수의무자:</strong> {withholdingData.company || '(주)에이아이테크'}</div>
-                      <div><strong className="text-slate-500">사업자등록번호:</strong> {withholdingData.businessNumber || '120-88-12345'}</div>
+                      <div><strong className="text-slate-500">징수의무자:</strong> {withholdingData.company || '-'}</div>
+                      <div><strong className="text-slate-500">사업자등록번호:</strong> {withholdingData.businessNumber || '-'}</div>
                       <div><strong className="text-slate-500">소득자성명:</strong> {userProfile?.name || '근로자'}</div>
-                      <div><strong className="text-slate-500">주민등록번호:</strong> 881024-2******</div>
                       <div><strong className="text-slate-500">귀속연도:</strong> 2025년</div>
-                      <div><strong className="text-slate-500">근무기간:</strong> {withholdingData.period || '2025.01.01 ~ 2025.12.31'}</div>
+                      <div className="col-span-2"><strong className="text-slate-500">근무기간:</strong> {withholdingData.period || '-'}</div>
                     </div>
 
                     {/* 주요 급여 및 결정세액 표 */}
@@ -703,21 +701,7 @@ export default function WithholdingPage({
                       </tbody>
                     </table>
 
-                    {/* 국세청 및 원천징수의무자 직인 날인 */}
-                    <div className="pt-3 pb-1 text-center border-t border-slate-200">
-                      <p className="text-[10px] text-slate-500">
-                        「소득세법」 제143조 및 동법 시행령 제196조의 규정에 의하여 근로소득원천징수영수증을 교부합니다.
-                      </p>
-                      <div className="mt-2.5 font-bold text-slate-800 flex items-center justify-center gap-2">
-                        <span>2026년 02월 10일</span>
-                      </div>
-                      <div className="mt-1 font-bold text-slate-900 flex items-center justify-center gap-1.5">
-                        <span>원천징수의무자: {withholdingData.company || '(주)에이아이테크'} 대표이사</span>
-                        <span className="w-6 h-6 rounded-full border border-rose-500 text-rose-500 text-[8px] flex items-center justify-center font-bold">
-                          [인]
-                        </span>
-                      </div>
-                    </div>
+                    
                   </div>
                 </div>
               )}
@@ -759,7 +743,7 @@ export default function WithholdingPage({
                   '📄 증빙서류 정보\n\n' +
                   '• 서류명: 근로소득원천징수영수증 (소득자 보관용)\n' +
                   '• 파일명: ' + (withholdingData.fileName || '근로소득원천징수영수증.pdf') + '\n' +
-                  '• 징수의무자: ' + (withholdingData.company || '(주)에이아이테크') + '\n' +
+                  '• 징수의무자: ' + (withholdingData.company || '-') + '\n' +
                   '• 귀속연도: 2025년도 (정산연월: 2026.02)'
                 )
               }

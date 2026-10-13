@@ -29,13 +29,7 @@ export default function PreviousJobPage({
     try {
       const parsed = getSecureItem('selftax_previous_jobs');
       if (parsed && Array.isArray(parsed)) {
-        const fallbackCompanies = [
-          '(주)이전테크',
-          '(주)미래소프트',
-          '(주)글로벌네트웍스',
-          '(주)디지털솔루션',
-          '(주)넥스트시스템',
-        ];
+
         // '(주)근로소득...' 등 서류명이 상호로 저장되어 있던 기존 데이터 정제
         return parsed.map((j, idx) => {
           if (
@@ -47,7 +41,7 @@ export default function PreviousJobPage({
           ) {
             return {
               ...j,
-              company: fallbackCompanies[idx % fallbackCompanies.length],
+              company: `종전근무지 ${idx + 1}`,
             };
           }
           return j;
@@ -202,7 +196,7 @@ export default function PreviousJobPage({
       }
 
       if (!parsedCompany) {
-        parsedCompany = `(주)종전근무지_${index + 1}`;
+        parsedCompany = `종전근무지 ${index + 1}`;
       }
 
       // 보조 기본값(가상 더미 프리셋) 완전 삭제 -> 실패/누락 시 0원 표기
@@ -688,25 +682,21 @@ export default function PreviousJobPage({
                 /* 소득세법 별지 제24호 서식의 고품질 국세청 표준 원천징수영수증 */
                 <div className="p-4 text-slate-800 text-[11px] leading-tight select-text font-sans bg-[#FBFBFA]">
                   <div className="border border-slate-400 p-3 bg-white space-y-3">
-                    {/* 문서 타이틀 */}
+                    {/* 원본 파일이 없을 때: 공식 서식처럼 보이지 않도록 입력·추출 값 요약만 표시 */}
                     <div className="text-center pb-2 border-b-2 border-slate-800">
-                      <div className="text-[10px] text-slate-500">[소득세법 시행규칙 별지 제24호서식]</div>
-                      <h3 className="text-base font-extrabold text-slate-900 tracking-wider mt-0.5">
-                        근로소득 원천징수영수증 (종전문근무지)
+                      <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
+                        원천징수영수증 입력 내용 요약
                       </h3>
-                      <div className="text-[10px] text-slate-600 mt-0.5 font-medium">
-                        ( [ ✓ ] 소득자 보관용  [  ] 발행자 보고용  [  ] 발행자 보관용 )
+                      <div className="text-[10px] text-amber-700 mt-0.5 font-medium">
+                        원본 PDF가 없어 입력·추출된 값만 보여 줍니다 (공식 서류 아님)
                       </div>
                     </div>
 
                     {/* 기본 인적사항 / 회사 정보 */}
                     <div className="grid grid-cols-2 gap-1 text-[10px] bg-slate-50 p-2 border border-slate-200 rounded">
-                      <div><strong className="text-slate-500">징수의무자:</strong> {viewingDoc.company}</div>
-                      <div><strong className="text-slate-500">사업자등록번호:</strong> 214-85-67890</div>
-                      <div><strong className="text-slate-500">소득자성명:</strong> 최지연</div>
-                      <div><strong className="text-slate-500">주민등록번호:</strong> 881024-2******</div>
+                      <div><strong className="text-slate-500">징수의무자:</strong> {viewingDoc.company || '-'}</div>
                       <div><strong className="text-slate-500">귀속연도:</strong> 2025년</div>
-                      <div><strong className="text-slate-500">근무기간:</strong> {viewingDoc.period || '2025.01.01 ~ 2025.06.30'}</div>
+                      <div className="col-span-2"><strong className="text-slate-500">근무기간:</strong> {viewingDoc.period || '-'}</div>
                     </div>
 
                     {/* 주요 급여 및 결정세액 표 */}
@@ -726,7 +716,9 @@ export default function PreviousJobPage({
                         </tr>
                         <tr>
                           <td className="border border-slate-300 p-1.5 font-medium">② 비과세소득 계</td>
-                          <td className="border border-slate-300 p-1.5 text-right font-mono">1,200,000</td>
+                          <td className="border border-slate-300 p-1.5 text-right font-mono">
+                            {viewingDoc.taxFree !== undefined ? Number(viewingDoc.taxFree || 0).toLocaleString() : '-'}
+                          </td>
                         </tr>
                         <tr className="bg-indigo-50/60 font-semibold text-indigo-950">
                           <td className="border border-slate-300 p-1.5">79. 소득세 (기납부세액)</td>
@@ -752,21 +744,7 @@ export default function PreviousJobPage({
                       </tbody>
                     </table>
 
-                    {/* 발급 확인 및 대표자 직인 */}
-                    <div className="pt-3 pb-1 text-center border-t border-slate-200">
-                      <p className="text-[10px] text-slate-500">
-                        「소득세법」 제143조의 규정에 의하여 근로소득원천징수영수증을 교부합니다.
-                      </p>
-                      <div className="mt-2 font-bold text-slate-800 flex items-center justify-center gap-2">
-                        <span>2025년 12월 31일</span>
-                      </div>
-                      <div className="mt-1 font-bold text-slate-900 flex items-center justify-center gap-1.5">
-                        <span>원천징수의무자: {viewingDoc.company} 대표이사</span>
-                        <span className="w-6 h-6 rounded-full border border-rose-500 text-rose-500 text-[8px] flex items-center justify-center font-bold">
-                          [인]
-                        </span>
-                      </div>
-                    </div>
+                    
                   </div>
                 </div>
               )}

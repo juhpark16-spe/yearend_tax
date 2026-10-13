@@ -970,9 +970,10 @@ export function calculateSettlementTax({
     const whHealth = Number(withholdingData?.healthInsurance ?? withholdingData?.health_insurance);
     const whEmployment = Number(withholdingData?.employmentInsurance ?? withholdingData?.employment_insurance);
 
-    nationalPension = !isNaN(whPension) && whPension > 0 ? whPension : Math.floor(totalSalary * 0.045);
-    healthInsurance = !isNaN(whHealth) && whHealth > 0 ? whHealth : Math.floor(totalSalary * 0.03545);
-    employmentInsurance = !isNaN(whEmployment) && whEmployment > 0 ? whEmployment : Math.floor(totalSalary * 0.009);
+    // 서류에서 읽지 못한 보험료는 급여 비율로 추정하지 않고 0원으로 둔다 (근거 없는 금액이 공제에 섞이지 않도록)
+    nationalPension = !isNaN(whPension) && whPension > 0 ? whPension : 0;
+    healthInsurance = !isNaN(whHealth) && whHealth > 0 ? whHealth : 0;
+    employmentInsurance = !isNaN(whEmployment) && whEmployment > 0 ? whEmployment : 0;
   }
 
   // 주택자금 & 주택마련저축 (세법 요건: 총급여 7,000만 원 이하 무주택 세대주만 주택마련저축 공제 가능)

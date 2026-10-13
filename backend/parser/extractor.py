@@ -1836,7 +1836,7 @@ class DocumentEntityExtractor:
                     person["items"]["monthly_rent_paid"] += val
 
                 # 월세액 세부 명세 파싱 (임대인 성명, 주민번호, 주택유형, 계약면적, 주소지, 계약기간, 지급액 계)
-                rent_items = cls._parse_rent_records(clean_p, val if val > 0 else 6000000)
+                rent_items = cls._parse_rent_records(clean_p, val)
                 if rent_items:
                     p_name = person.get("name", "본인")
                     if "rent_details" not in results:
@@ -2192,7 +2192,7 @@ class DocumentEntityExtractor:
                 house_type = "주거용 오피스텔" if ht == "오피스텔" else ht
                 break
 
-        area = "59.8"
+        area = ""
         m_area = re.search(r'(?:주택계약면적|계약면적|전용면적)[^\d\r\n]*\r?\n?[^\S\r\n]*([\d\.]+)', text)
         if m_area:
             area = m_area.group(1).strip()
@@ -2202,7 +2202,7 @@ class DocumentEntityExtractor:
         if m_addr:
             address = m_addr.group(1).splitlines()[0].strip()
 
-        period = "2025.01.01 ~ 2025.12.31"
+        period = ""
         m_period = re.search(r'(?:임대차계약기간|계약기간)[^\d\n]*\n?\s*(\d{4}[\.\-\/]\d{2}[\.\-\/]\d{2}\s*~?\s*\d{4}[\.\-\/]\d{2}[\.\-\/]\d{2})', text)
         if m_period:
             period = m_period.group(1).strip()
@@ -2213,14 +2213,9 @@ class DocumentEntityExtractor:
             if m_amt:
                 amt = int(m_amt.group(1).replace(",", ""))
 
-        if not landlord:
-            landlord = "김임대"
-        if not landlord_id:
-            landlord_id = "650101-1******"
-        if not address:
-            address = "서울특별시 영등포구 여의도동 123"
+        # 읽지 못한 값은 비워 둔다 (예시 임대인·주소·금액을 채우지 않음). 금액이 없으면 항목을 만들지 않는다.
         if amt <= 0:
-            amt = 6000000
+            return None
 
         return {
             "id": f"nts_rent_{abs(hash(landlord + address)) % 100000}",
