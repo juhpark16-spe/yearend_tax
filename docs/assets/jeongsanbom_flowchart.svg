@@ -1,0 +1,206 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" font-family="'Noto Sans CJK KR','Noto Sans KR',sans-serif"><defs><marker id="ah_1E6FFB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1E6FFB"/></marker><marker id="ah_DB2777" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#DB2777"/></marker><marker id="ah_059669" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#059669"/></marker><marker id="ah_D97706" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#D97706"/></marker><marker id="ah_7C3AED" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7C3AED"/></marker><marker id="ah_475569" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker><marker id="ah_0F172A" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0F172A"/></marker><marker id="ah_64748b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#64748b"/></marker><marker id="ah_DC2626" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#DC2626"/></marker><marker id="ah_EA580C" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#EA580C"/></marker></defs>
+<rect width="1920" height="1080" fill="#F8FAFC"/>
+<rect x="0" y="0" width="1920" height="78" fill="#fff"/><line x1="0" y1="78" x2="1920" y2="78" stroke="#E2E8F0"/>
+<circle cx="52" cy="39" r="16" fill="#FBCFE8"/>
+<circle cx="52" cy="39" r="6" fill="#DB2777"/>
+<text x="80" y="30" font-size="26" font-weight="800" fill="#0F172A" text-anchor="start" dominant-baseline="central">정산봄 AI 셀프 연말정산 — 처리 흐름도</text>
+<text x="80" y="58" font-size="14" font-weight="400" fill="#64748b" text-anchor="start" dominant-baseline="central">서류 업로드 → PDF 분석(마스킹) → 부양가족 매칭·공제요건 → 두 엔진 세액 계산·교차검증 → AI 근거 설명   (2025년 귀속)</text>
+<rect x="1180" y="22" width="22" height="18" rx="4" fill="#FDF2F8" stroke="#DB2777" stroke-width="1.6"/>
+<text x="1210" y="31" font-size="13" font-weight="600" fill="#0F172A" text-anchor="start" dominant-baseline="central">개인정보 보호</text>
+<polygon points="1336,20.0 1352.0,31 1336,42.0 1320.0,31" fill="#FEF3C7" stroke="#D97706" stroke-width="1.6"/>
+<text x="1336" y="31" font-size="13" font-weight="800" fill="#78350F" text-anchor="middle" dominant-baseline="central"></text>
+<text x="1358" y="31" font-size="13" font-weight="600" fill="#0F172A" text-anchor="start" dominant-baseline="central">판단</text>
+<polyline points="1406,31 1446,31" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#ah_475569)"/>
+<text x="1454" y="31" font-size="13" font-weight="600" fill="#0F172A" text-anchor="start" dominant-baseline="central">흐름</text>
+<polyline points="1506,31 1546,31" fill="none" stroke="#475569" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#ah_475569)"/>
+<text x="1554" y="31" font-size="13" font-weight="600" fill="#0F172A" text-anchor="start" dominant-baseline="central">결과 전달</text>
+<rect x="20" y="92" width="1880" height="118" rx="14" fill="#EFF6FF" stroke="#BFDBFE" stroke-width="1.6"/>
+<text x="40" y="111" font-size="14" font-weight="800" fill="#1E6FFB" text-anchor="start" dominant-baseline="central">사용자 화면 (React)</text>
+<rect x="40" y="126" width="246" height="70" rx="9" fill="#fff" stroke="#93C5FD" stroke-width="1.6"/>
+<text x="163.0" y="153.0" font-size="15" font-weight="800" fill="#0F172A" text-anchor="middle" dominant-baseline="central">시작</text>
+<text x="163.0" y="172.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">로그인 · 둘러보기</text>
+<polyline points="288,161 306,161" fill="none" stroke="#1E6FFB" stroke-width="2" marker-end="url(#ah_1E6FFB)"/>
+<rect x="308" y="126" width="246" height="70" rx="9" fill="#fff" stroke="#93C5FD" stroke-width="1.6"/>
+<text x="431.0" y="153.0" font-size="15" font-weight="800" fill="#0F172A" text-anchor="middle" dominant-baseline="central">① 부양가족</text>
+<text x="431.0" y="172.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">등본 업로드 → 서버 분석</text>
+<polyline points="556,161 574,161" fill="none" stroke="#1E6FFB" stroke-width="2" marker-end="url(#ah_1E6FFB)"/>
+<rect x="576" y="126" width="246" height="70" rx="9" fill="#fff" stroke="#93C5FD" stroke-width="1.6"/>
+<text x="699.0" y="153.0" font-size="15" font-weight="800" fill="#0F172A" text-anchor="middle" dominant-baseline="central">② 근무지 소득</text>
+<text x="699.0" y="172.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">원천징수영수증 업로드</text>
+<polyline points="824,161 842,161" fill="none" stroke="#1E6FFB" stroke-width="2" marker-end="url(#ah_1E6FFB)"/>
+<rect x="844" y="126" width="246" height="70" rx="9" fill="#fff" stroke="#93C5FD" stroke-width="1.6"/>
+<text x="967.0" y="153.0" font-size="15" font-weight="800" fill="#0F172A" text-anchor="middle" dominant-baseline="central">③ 국세청 자료</text>
+<text x="967.0" y="172.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">간소화 PDF 업로드</text>
+<polyline points="1092,161 1110,161" fill="none" stroke="#1E6FFB" stroke-width="2" marker-end="url(#ah_1E6FFB)"/>
+<rect x="1112" y="126" width="246" height="70" rx="9" fill="#fff" stroke="#93C5FD" stroke-width="1.6"/>
+<text x="1235.0" y="153.0" font-size="15" font-weight="800" fill="#0F172A" text-anchor="middle" dominant-baseline="central">④ 공제자료 입력</text>
+<text x="1235.0" y="172.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">12개 항목 확인·수기 입력</text>
+<polyline points="1360,161 1378,161" fill="none" stroke="#1E6FFB" stroke-width="2" marker-end="url(#ah_1E6FFB)"/>
+<rect x="1380" y="126" width="246" height="70" rx="9" fill="#fff" stroke="#93C5FD" stroke-width="1.6"/>
+<text x="1503.0" y="153.0" font-size="15" font-weight="800" fill="#0F172A" text-anchor="middle" dominant-baseline="central">⑤ 예상세액</text>
+<text x="1503.0" y="172.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">결정세액 · 환급액</text>
+<polyline points="1628,161 1646,161" fill="none" stroke="#1E6FFB" stroke-width="2" marker-end="url(#ah_1E6FFB)"/>
+<rect x="1648" y="126" width="246" height="70" rx="9" fill="#fff" stroke="#93C5FD" stroke-width="1.6"/>
+<text x="1771.0" y="153.0" font-size="15" font-weight="800" fill="#0F172A" text-anchor="middle" dominant-baseline="central">⑥ AI 리포트</text>
+<text x="1771.0" y="172.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">근거 보기 · 절세 전략</text>
+<rect x="20" y="226" width="616" height="716" rx="14" fill="#fff" stroke="#E2E8F0" stroke-width="1.6"/>
+<rect x="20" y="226" width="616" height="42" rx="14" fill="#DB2777" stroke="#DB2777" stroke-width="1.6"/>
+<rect x="20" y="252" width="616" height="16" rx="0" fill="#DB2777" stroke="#DB2777" stroke-width="0"/>
+<text x="42" y="247" font-size="17" font-weight="800" fill="#fff" text-anchor="start" dominant-baseline="central">1   PDF 분석 · 서버 (FastAPI)</text>
+<rect x="652" y="226" width="616" height="716" rx="14" fill="#fff" stroke="#E2E8F0" stroke-width="1.6"/>
+<rect x="652" y="226" width="616" height="42" rx="14" fill="#059669" stroke="#059669" stroke-width="1.6"/>
+<rect x="652" y="252" width="616" height="16" rx="0" fill="#059669" stroke="#059669" stroke-width="0"/>
+<text x="674" y="247" font-size="17" font-weight="800" fill="#fff" text-anchor="start" dominant-baseline="central">2   부양가족 매칭 · 공제요건</text>
+<rect x="1284" y="226" width="616" height="716" rx="14" fill="#fff" stroke="#E2E8F0" stroke-width="1.6"/>
+<rect x="1284" y="226" width="616" height="42" rx="14" fill="#7C3AED" stroke="#7C3AED" stroke-width="1.6"/>
+<rect x="1284" y="252" width="616" height="16" rx="0" fill="#7C3AED" stroke="#7C3AED" stroke-width="0"/>
+<text x="1306" y="247" font-size="17" font-weight="800" fill="#fff" text-anchor="start" dominant-baseline="central">3   세액 계산 · 교차검증 · 설명</text>
+<rect x="44" y="288" width="568" height="56" rx="9" fill="#fff" stroke="#CBD5E1" stroke-width="1.6"/>
+<text x="328.0" y="308.0" font-size="15" font-weight="800" fill="#0F172A" text-anchor="middle" dominant-baseline="central">파일 검증</text>
+<text x="328.0" y="327.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">.pdf · 20MB 이하 · 실제 PDF 형식인지 확인</text>
+<polyline points="328.0,344 328.0,360" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#ah_475569)"/>
+<rect x="44" y="360" width="568" height="56" rx="9" fill="#fff" stroke="#CBD5E1" stroke-width="1.6"/>
+<text x="328.0" y="380.0" font-size="15" font-weight="800" fill="#0F172A" text-anchor="middle" dominant-baseline="central">텍스트 · 표 추출</text>
+<text x="328.0" y="399.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">pdfplumber → pypdf · 메모리에서만 처리 (원본 미보관)</text>
+<polyline points="328.0,416 328.0,424.0 258.0,424.0 258.0,432" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#ah_475569)"/>
+<polygon points="258.0,432.0 368.0,464 258.0,496.0 148.0,464" fill="#FEF3C7" stroke="#D97706" stroke-width="1.6"/>
+<text x="258.0" y="464" font-size="13" font-weight="800" fill="#78350F" text-anchor="middle" dominant-baseline="central">글자 깨짐 감지?</text>
+<rect x="422" y="434" width="190" height="60" rx="9" fill="#FFF7ED" stroke="#EA580C" stroke-width="1.6"/>
+<text x="517.0" y="456.0" font-size="15" font-weight="800" fill="#EA580C" text-anchor="middle" dominant-baseline="central">깨진 한글 복원</text>
+<text x="517.0" y="475.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">싞용카드 → 신용카드</text>
+<polyline points="368.0,464 420,464" fill="none" stroke="#EA580C" stroke-width="2" marker-end="url(#ah_EA580C)"/>
+<text x="395.0" y="453" font-size="12" font-weight="800" fill="#EA580C" text-anchor="middle" dominant-baseline="central">예</text>
+<text x="246.0" y="504" font-size="11.5" font-weight="700" fill="#64748b" text-anchor="end" dominant-baseline="central">아니오</text>
+<polyline points="517.0,494 517.0,504.0 262.0,504.0" fill="none" stroke="#EA580C" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#ah_EA580C)"/>
+<polyline points="328.0,496 328.0,504.0 258.0,504.0 258.0,512" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#ah_475569)"/>
+<polygon points="258.0,512.0 368.0,544 258.0,576.0 148.0,544" fill="#FEF3C7" stroke="#D97706" stroke-width="1.6"/>
+<text x="258.0" y="544" font-size="13" font-weight="800" fill="#78350F" text-anchor="middle" dominant-baseline="central">스캔본(이미지)?</text>
+<rect x="422" y="514" width="190" height="60" rx="9" fill="#FDF2F8" stroke="#DB2777" stroke-width="1.6"/>
+<text x="517.0" y="536.0" font-size="15" font-weight="800" fill="#DB2777" text-anchor="middle" dominant-baseline="central">Vision OCR</text>
+<text x="517.0" y="555.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">주민번호 가린 이미지만</text>
+<polyline points="368.0,544 420,544" fill="none" stroke="#DB2777" stroke-width="2" marker-end="url(#ah_DB2777)"/>
+<text x="395.0" y="533" font-size="12" font-weight="800" fill="#DB2777" text-anchor="middle" dominant-baseline="central">예</text>
+<text x="246.0" y="584" font-size="11.5" font-weight="700" fill="#64748b" text-anchor="end" dominant-baseline="central">아니오</text>
+<polyline points="517.0,574 517.0,584.0 262.0,584.0" fill="none" stroke="#DB2777" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#ah_DB2777)"/>
+<polyline points="258.0,576 258.0,584.0 328.0,584.0 328.0,592" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#ah_475569)"/>
+<rect x="44" y="592" width="568" height="66" rx="9" fill="#FDF2F8" stroke="#DB2777" stroke-width="1.6"/>
+<text x="328.0" y="609.0" font-size="15" font-weight="800" fill="#DB2777" text-anchor="middle" dominant-baseline="central">주민번호 즉시 마스킹</text>
+<text x="328.0" y="628.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">본문 + 표 셀 모두 · 900101-1234567 → 900101-[RRN Omitted]</text>
+<text x="328.0" y="644.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">원본은 메모리·DB 어디에도 남기지 않음</text>
+<polyline points="328.0,658 328.0,674" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#ah_475569)"/>
+<rect x="44" y="674" width="568" height="56" rx="9" fill="#fff" stroke="#CBD5E1" stroke-width="1.6"/>
+<text x="328.0" y="694.0" font-size="15" font-weight="800" fill="#0F172A" text-anchor="middle" dominant-baseline="central">서식 4종 자동 분류</text>
+<text x="328.0" y="713.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">국세청 간소화 · 원천징수영수증 · 주민등록등본 · 가족관계증명서</text>
+<polyline points="328.0,730 328.0,746" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#ah_475569)"/>
+<rect x="44" y="746" width="568" height="86" rx="9" fill="#fff" stroke="#CBD5E1" stroke-width="1.6"/>
+<text x="328.0" y="765.0" font-size="15" font-weight="800" fill="#0F172A" text-anchor="middle" dominant-baseline="central">공제 항목 추출</text>
+<text x="328.0" y="784.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">인별 보험 · 의료 · 교육 · 카드 · 기부금</text>
+<text x="328.0" y="800.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">주택자금 · 주택마련저축 · 장기집합: PDF 표에서 행 단위로</text>
+<text x="328.0" y="816.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">예시 값 · 기본 금액 없음 → PDF에 없으면 빈 값</text>
+<polyline points="328.0,832 328.0,848" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#ah_475569)"/>
+<rect x="44" y="848" width="568" height="56" rx="9" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="1.6"/>
+<text x="328.0" y="868.0" font-size="15" font-weight="800" fill="#0F172A" text-anchor="middle" dominant-baseline="central">분석 결과 → 화면으로</text>
+<text x="328.0" y="887.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">DB에는 마스킹된 결과만 저장 · 30일 후 자동 삭제</text>
+<rect x="676" y="288" width="568" height="60" rx="9" fill="#fff" stroke="#CBD5E1" stroke-width="1.6"/>
+<text x="960.0" y="310.0" font-size="15" font-weight="800" fill="#0F172A" text-anchor="middle" dominant-baseline="central">부양가족 매칭</text>
+<text x="960.0" y="329.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">이름 + 생년월일(YYMMDD) · PDF 첫 사람 = 근로자 본인</text>
+<polyline points="960.0,348 960.0,356.0 865.0,356.0 865.0,364" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#ah_475569)"/>
+<polygon points="865.0,364.0 980.0,398 865.0,432.0 750.0,398" fill="#FEF3C7" stroke="#D97706" stroke-width="1.6"/>
+<text x="865.0" y="398" font-size="13" font-weight="800" fill="#78350F" text-anchor="middle" dominant-baseline="central">부양가족 목록에 있나?</text>
+<rect x="1044" y="364" width="200" height="68" rx="9" fill="#FFFBEB" stroke="#D97706" stroke-width="1.6"/>
+<text x="1144.0" y="382.0" font-size="15" font-weight="800" fill="#D97706" text-anchor="middle" dominant-baseline="central">빠진 자료 카드</text>
+<text x="1144.0" y="401.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">관계 · 소득요건 선택</text>
+<text x="1144.0" y="417.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">→ 부양가족에 추가</text>
+<polyline points="980.0,398 1042,398" fill="none" stroke="#D97706" stroke-width="2" marker-end="url(#ah_D97706)"/>
+<text x="1012.0" y="387" font-size="12" font-weight="800" fill="#D97706" text-anchor="middle" dominant-baseline="central">아니오</text>
+<polyline points="1084,362 1084,350" fill="none" stroke="#D97706" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#ah_D97706)"/>
+<text x="1076" y="352" font-size="11" font-weight="700" fill="#D97706" text-anchor="end" dominant-baseline="central">다시 매칭</text>
+<text x="855.0" y="440" font-size="12" font-weight="800" fill="#059669" text-anchor="end" dominant-baseline="central">예</text>
+<polyline points="865.0,432 865.0,440.0 960.0,440.0 960.0,448" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#ah_475569)"/>
+<rect x="676" y="448" width="568" height="132" rx="9" fill="#ECFDF5" stroke="#059669" stroke-width="1.6"/>
+<text x="960.0" y="470" font-size="15" font-weight="800" fill="#059669" text-anchor="middle" dominant-baseline="central">공제요건 판정 — 국세청 '부양가족 공제요건' 표</text>
+<text x="712" y="498" font-size="13" font-weight="700" fill="#0F172A" text-anchor="start" dominant-baseline="central">기본공제</text>
+<text x="926" y="498" font-size="13" font-weight="400" fill="#334155" text-anchor="start" dominant-baseline="central">나이 · 소득 요건</text>
+<text x="712" y="519" font-size="13" font-weight="700" fill="#0F172A" text-anchor="start" dominant-baseline="central">보장성보험료</text>
+<text x="926" y="519" font-size="13" font-weight="400" fill="#334155" text-anchor="start" dominant-baseline="central">나이 · 소득 요건</text>
+<text x="712" y="540" font-size="13" font-weight="700" fill="#0F172A" text-anchor="start" dominant-baseline="central">의료비</text>
+<text x="926" y="540" font-size="13" font-weight="400" fill="#334155" text-anchor="start" dominant-baseline="central">요건 없음 → 기본공제에서 빠져도 공제</text>
+<text x="712" y="561" font-size="13" font-weight="700" fill="#0F172A" text-anchor="start" dominant-baseline="central">교육비 · 신용카드 · 기부금</text>
+<text x="926" y="561" font-size="13" font-weight="400" fill="#334155" text-anchor="start" dominant-baseline="central">소득 요건만 (나이 무관)</text>
+<polyline points="960.0,580 960.0,596" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#ah_475569)"/>
+<rect x="676" y="596" width="568" height="62" rx="9" fill="#fff" stroke="#CBD5E1" stroke-width="1.6"/>
+<text x="960.0" y="611.0" font-size="15" font-weight="800" fill="#0F172A" text-anchor="middle" dominant-baseline="central">공제자료 입력 (12개 항목)</text>
+<text x="960.0" y="630.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">국세청 자료 자동 반영 + 기타 영수증 수기 추가</text>
+<text x="960.0" y="646.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">다른 PDF를 올리면 국세청 항목을 새로 작성</text>
+<polyline points="960.0,658 960.0,674" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#ah_475569)"/>
+<rect x="676" y="674" width="568" height="62" rx="9" fill="#fff" stroke="#CBD5E1" stroke-width="1.6"/>
+<text x="960.0" y="689.0" font-size="15" font-weight="800" fill="#0F172A" text-anchor="middle" dominant-baseline="central">요건 검증 (/validate)</text>
+<text x="960.0" y="708.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">인별 요건 충족 여부 + 그래도 공제되는 항목 안내</text>
+<text x="960.0" y="724.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">예) 소득 초과 부모님: 기본공제 제외 · 의료비는 공제</text>
+<polyline points="960.0,736 960.0,752" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#ah_475569)"/>
+<rect x="676" y="752" width="568" height="56" rx="9" fill="#FDF2F8" stroke="#DB2777" stroke-width="1.6"/>
+<text x="960.0" y="772.0" font-size="15" font-weight="800" fill="#DB2777" text-anchor="middle" dominant-baseline="central">브라우저 암호화 저장 (AES-GCM 256)</text>
+<text x="960.0" y="791.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">계정별 분리 · 새로고침해도 유지 · 창을 닫으면 게스트 자료 삭제</text>
+<rect x="1308" y="288" width="272.0" height="68" rx="9" fill="#fff" stroke="#CBD5E1" stroke-width="1.6"/>
+<text x="1444.0" y="306.0" font-size="15" font-weight="800" fill="#0F172A" text-anchor="middle" dominant-baseline="central">화면 엔진</text>
+<text x="1444.0" y="325.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">taxCalculator.js</text>
+<text x="1444.0" y="341.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">입력 즉시 계산</text>
+<rect x="1604.0" y="288" width="272.0" height="68" rx="9" fill="#fff" stroke="#CBD5E1" stroke-width="1.6"/>
+<text x="1740.0" y="306.0" font-size="15" font-weight="800" fill="#0F172A" text-anchor="middle" dominant-baseline="central">서버 엔진</text>
+<text x="1740.0" y="325.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">TaxCalculationService</text>
+<text x="1740.0" y="341.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">같은 입력으로 재계산</text>
+<text x="1592.0" y="322" font-size="20" font-weight="800" fill="#7C3AED" text-anchor="middle" dominant-baseline="central">⇄</text>
+<polyline points="1444.0,356 1444.0,372" fill="none" stroke="#7C3AED" stroke-width="2" marker-end="url(#ah_7C3AED)"/>
+<polyline points="1740.0,356 1740.0,372" fill="none" stroke="#7C3AED" stroke-width="2" marker-end="url(#ah_7C3AED)"/>
+<rect x="1308" y="372" width="568" height="58" rx="9" fill="#F5F3FF" stroke="#DDD6FE" stroke-width="1.6"/>
+<text x="1592.0" y="391" font-size="13.5" font-weight="800" fill="#7C3AED" text-anchor="middle" dominant-baseline="central">같은 7단계 규칙 · LLM 0% · 순수 공식 계산</text>
+<text x="1592.0" y="412" font-size="12" font-weight="400" fill="#334155" text-anchor="middle" dominant-baseline="central">총급여 → 근로소득금액 → 과세표준 → 산출세액 → 세액감면·공제 → 결정세액 → 차감징수세액</text>
+<polyline points="1592.0,430 1592.0,446" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#ah_475569)"/>
+<polygon points="1592.0,446.0 1682.0,480 1592.0,514.0 1502.0,480" fill="#FEF3C7" stroke="#D97706" stroke-width="1.6"/>
+<text x="1592.0" y="480" font-size="13" font-weight="800" fill="#78350F" text-anchor="middle" dominant-baseline="central">두 결과가 같은가?</text>
+<rect x="1308" y="448" width="142" height="64" rx="9" fill="#ECFDF5" stroke="#059669" stroke-width="1.6"/>
+<text x="1379.0" y="472.0" font-size="15" font-weight="800" fill="#059669" text-anchor="middle" dominant-baseline="central">✓ 계산검증완료</text>
+<text x="1379.0" y="491.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">확인OK</text>
+<rect x="1734" y="448" width="142" height="64" rx="9" fill="#FEF2F2" stroke="#DC2626" stroke-width="1.6"/>
+<text x="1805.0" y="464.0" font-size="15" font-weight="800" fill="#DC2626" text-anchor="middle" dominant-baseline="central">계산검증완료</text>
+<text x="1805.0" y="483.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">확인필요</text>
+<text x="1805.0" y="499.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">차이는 개발자 기록</text>
+<polyline points="1502.0,480 1452,480" fill="none" stroke="#059669" stroke-width="2" marker-end="url(#ah_059669)"/>
+<text x="1476.0" y="469" font-size="12" font-weight="800" fill="#059669" text-anchor="middle" dominant-baseline="central">예</text>
+<polyline points="1682.0,480 1732,480" fill="none" stroke="#DC2626" stroke-width="2" marker-end="url(#ah_DC2626)"/>
+<text x="1708.0" y="469" font-size="12" font-weight="800" fill="#DC2626" text-anchor="middle" dominant-baseline="central">아니오</text>
+<text x="1592.0" y="522" font-size="11.5" font-weight="600" fill="#64748b" text-anchor="middle" dominant-baseline="central">근로자 화면에는 이 한 줄만 표시</text>
+<polyline points="1592.0,530 1592.0,546" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#ah_475569)"/>
+<rect x="1308" y="546" width="568" height="58" rx="9" fill="#fff" stroke="#CBD5E1" stroke-width="1.6"/>
+<text x="1592.0" y="567.0" font-size="15" font-weight="800" fill="#0F172A" text-anchor="middle" dominant-baseline="central">감사 기록 (Audit Log)</text>
+<text x="1592.0" y="586.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">7단계 수식 · 중간값 · 국세청 근거 조항 → '왜 이 금액인가요?'</text>
+<polyline points="1592.0,604 1592.0,620" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#ah_475569)"/>
+<rect x="1308" y="620" width="568" height="82" rx="9" fill="#F5F3FF" stroke="#7C3AED" stroke-width="1.6"/>
+<text x="1592.0" y="637.0" font-size="15" font-weight="800" fill="#7C3AED" text-anchor="middle" dominant-baseline="central">AI 근거 보기 · 절세 리포트</text>
+<text x="1592.0" y="656.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">국세청 신고안내서 RAG (FAISS) → 출처 페이지와 함께 설명</text>
+<text x="1592.0" y="672.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">AI에는 숫자만 전송 (이름 · 주민번호 미전송)</text>
+<text x="1592.0" y="688.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">AI 장애 시 결정론적 대체 설명</text>
+<polyline points="1592.0,702 1592.0,718" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#ah_475569)"/>
+<rect x="1308" y="718" width="568" height="56" rx="9" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="1.6" stroke-dasharray="5 4"/>
+<text x="1592.0" y="738.0" font-size="15" font-weight="800" fill="#0F172A" text-anchor="middle" dominant-baseline="central">검증 모드 (발표 · 개발자용)</text>
+<text x="1592.0" y="757.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">주소 뒤 ?verify=1 → 두 엔진 비교표 · 감사 로그 원문</text>
+<polyline points="612,876 644,876 644,318 674,318" fill="none" stroke="#475569" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#ah_475569)"/>
+<polyline points="1244,627 1276,627 1276,322 1306,322" fill="none" stroke="#475569" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#ah_475569)"/>
+<rect x="20" y="956" width="1880" height="110" rx="14" fill="#F5F3FF" stroke="#DDD6FE" stroke-width="1.6"/>
+<text x="40" y="976" font-size="14" font-weight="800" fill="#7C3AED" text-anchor="start" dominant-baseline="central">데이터 · 지식</text>
+<rect x="40" y="990" width="448" height="64" rx="9" fill="#fff" stroke="#7C3AED" stroke-width="1.6"/>
+<text x="264.0" y="1006.0" font-size="15" font-weight="800" fill="#7C3AED" text-anchor="middle" dominant-baseline="central">서버 DB</text>
+<text x="264.0" y="1025.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">SQLite / PostgreSQL · 마스킹된 결과만</text>
+<text x="264.0" y="1041.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">30일 후 자동 삭제 · '내 자료 삭제' 즉시</text>
+<rect x="504" y="990" width="448" height="64" rx="9" fill="#fff" stroke="#DB2777" stroke-width="1.6"/>
+<text x="728.0" y="1006.0" font-size="15" font-weight="800" fill="#DB2777" text-anchor="middle" dominant-baseline="central">브라우저 저장소</text>
+<text x="728.0" y="1025.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">AES-GCM 256 암호화 · 계정별 분리</text>
+<text x="728.0" y="1041.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">창을 닫으면 게스트 자료 삭제</text>
+<rect x="968" y="990" width="448" height="64" rx="9" fill="#fff" stroke="#1E6FFB" stroke-width="1.6"/>
+<text x="1192.0" y="1006.0" font-size="15" font-weight="800" fill="#1E6FFB" text-anchor="middle" dominant-baseline="central">FAISS 지식베이스</text>
+<text x="1192.0" y="1025.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">2025 국세청 연말정산 신고안내서</text>
+<text x="1192.0" y="1041.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">출처 페이지와 함께 검색</text>
+<rect x="1432" y="990" width="448" height="64" rx="9" fill="#fff" stroke="#D97706" stroke-width="1.6"/>
+<text x="1656.0" y="1006.0" font-size="15" font-weight="800" fill="#D97706" text-anchor="middle" dominant-baseline="central">외부 서비스</text>
+<text x="1656.0" y="1025.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">Supabase 로그인 · OpenAI(숫자만)</text>
+<text x="1656.0" y="1041.0" font-size="12.5" font-weight="400" fill="#64748b" text-anchor="middle" dominant-baseline="central">로컬 OCR은 PC 안에서 실행</text></svg>
