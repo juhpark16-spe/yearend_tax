@@ -3073,9 +3073,14 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
     return 0;
   };
 
-  // 신용카드 폼에서 성명 변경 핸들러 (인별 카드 사용금액 자동 반영)
+  // 신용카드 폼에서 성명 변경 핸들러
+  // 국세청 자료 항목을 수정 중일 때만 PDF 금액 자동 반영 (기타자료는 국세청 미조회분이므로 자동 입력 시 중복공제 위험)
+  const isEditingNtsCard = () =>
+    Boolean(editingCardItemId && cardItems.find((it) => it.id === editingCardItemId)?.isNts);
+
   const handleCardNameChange = (newName) => {
     setFormCardName(newName);
+    if (!isEditingNtsCard()) return;
     const autoAmt = getHometaxCardAmountByType(newName, formCardType);
     setFormCardAmount(autoAmt > 0 ? autoAmt.toLocaleString() : '');
   };
@@ -3083,21 +3088,22 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
   // 신용카드 폼에서 카드 유형 변경 핸들러 (카드 유형별 사용금액 자동 작성)
   const handleCardTypeChange = (newType) => {
     setFormCardType(newType);
+    if (!isEditingNtsCard()) return;
     const autoAmt = getHometaxCardAmountByType(formCardName, newType);
     if (autoAmt > 0) {
       setFormCardAmount(autoAmt.toLocaleString());
     }
   };
 
-  // 신용카드 신규 추가 폼 열기 (성명: 로그인 근로자 기준, 신용카드 선택 시 인별 일반 금액 자동 작성)
+  // 신용카드 기타자료 신규 추가 폼 열기 (성명: 로그인 근로자 기준, 사용금액은 빈칸)
   const handleOpenAddCard = () => {
     setEditingCardItemId(null);
     const cleanWorkerName = (loggedInWorkerName || '').replace(/\(.*?\)/g, '').trim();
     setFormCardName(cleanWorkerName);
     setFormCardType('신용카드');
     setFormCardCompany('');
-    const autoAmt = getHometaxCardAmountByType(cleanWorkerName, '신용카드');
-    setFormCardAmount(autoAmt > 0 ? autoAmt.toLocaleString() : '');
+    // 기타자료는 국세청 간소화에 없는 사용분이므로 빈칸으로 시작
+    setFormCardAmount('');
     setViewMode('card_add');
   };
 
@@ -3115,11 +3121,6 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
       const pdfAmt = getHometaxCardAmountByType(cleanName, cType);
       if (pdfAmt > 0) {
         amt = pdfAmt;
-      }
-    } else if (cType === '신용카드') {
-      const pdfGeneralAmt = getHometaxCardAmountByType(cleanName, '신용카드');
-      if (pdfGeneralAmt > 0) {
-        amt = pdfGeneralAmt;
       }
     }
     setFormCardAmount(amt > 0 ? amt.toLocaleString() : '');
