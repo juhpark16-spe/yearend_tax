@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { SERVER_SESSION_KEY, serverErrorMessage, taxService } from '../services/api';
 import { recordVerificationMismatch, runServerCrossCheck } from '../utils/serverCrossCheck';
+import { wipeLocalTaxData, getActiveOwner } from '../utils/userTaxStorage';
 
 const SESSION_KEY = SERVER_SESSION_KEY;
 const won = (v) => `${Math.round(Number(v) || 0).toLocaleString()}원`;
@@ -20,7 +21,7 @@ export default function ServerCrossCheckCard({ jsResult, userName = '' }) {
   const [openLogs, setOpenLogs] = useState(false);
   // 결과가 길어서 접어 둘 수 있게 (요약 한 줄은 항상 표시)
   const [collapsed, setCollapsed] = useState(false);
-  // 서버에 저장된 내 자료 삭제 (한 번 더 눌러야 삭제되는 2단계 버튼)
+  // 내 자료 전체 삭제: 서버 + 이 브라우저 (한 번 더 눌러야 삭제되는 2단계 버튼)
   const [deleteState, setDeleteState] = useState('idle'); // idle | confirm | deleting | done | error
   const deleteServerData = async () => {
     if (deleteState !== 'confirm') {
@@ -33,7 +34,11 @@ export default function ServerCrossCheckCard({ jsResult, userName = '' }) {
       try { localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
       setRows([]); setCreditRows([]); setAppliedRows([]); setLogs([]);
       setState('idle');
+      // 서버 자료와 함께 이 브라우저에 남은 내 자료도 지우고 처음 화면으로
+      wipeLocalTaxData(getActiveOwner() || 'guest');
+      try { sessionStorage.setItem('selftax_current_screen', 'main'); } catch { /* ignore */ }
       setDeleteState('done');
+      setTimeout(() => window.location.reload(), 900);
     } catch (e) {
       setDeleteState('error');
     }
@@ -223,10 +228,10 @@ export default function ServerCrossCheckCard({ jsResult, userName = '' }) {
             : deleteState === 'deleting'
             ? '삭제 중...'
             : deleteState === 'done'
-            ? '서버 자료 삭제됨'
+            ? '삭제 완료 · 처음 화면으로'
             : deleteState === 'error'
             ? '삭제 실패 · 다시 시도'
-            : '서버에 저장된 내 자료 삭제'}
+            : '내 자료 전체 삭제'}
         </button>
       </div>
     </div>

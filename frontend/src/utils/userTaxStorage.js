@@ -529,3 +529,23 @@ export function clearActiveTaxData() {
     console.error('clearActiveTaxData error:', err);
   }
 }
+
+/**
+ * '내 자료 전체 삭제' 버튼용: 이 브라우저에 남은 내 연말정산 자료를 모두 지움
+ * (현재 화면 자료 + 사용자별 영구 번들 + 세션 백업 + 진행 상태). 서버 자료 삭제와 함께 호출한다.
+ */
+export function wipeLocalTaxData(userId) {
+  const id = String(userId || 'guest');
+  clearActiveTaxData();
+  try {
+    const bundleKey = getUserBundleKey(id);
+    try { removeSecureItem(bundleKey); } catch { /* ignore */ }
+    localStorage.removeItem(bundleKey);
+    sessionStorage.removeItem(`selftax_session_backup_${id}`);
+    sessionStorage.removeItem('selftax_session_backup');
+    localStorage.removeItem(`taxProgress_${id}`);
+    localStorage.removeItem(`completedMenus_${id}`);
+  } catch (err) {
+    console.error('wipeLocalTaxData error:', err);
+  }
+}

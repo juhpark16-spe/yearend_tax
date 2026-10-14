@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { taxService, SERVER_SESSION_KEY } from '../services/api';
 import { recordVerificationMismatch, runServerCrossCheck } from '../utils/serverCrossCheck';
+import { wipeLocalTaxData, getActiveOwner } from '../utils/userTaxStorage';
 
 /**
  * 근로자용 계산 검증 한 줄
  * - 결과 화면이 열리면 같은 입력을 백엔드 결정론적 엔진으로 자동 재계산해 비교한다.
  * - 같으면 "✓ 계산검증완료 - 확인OK", 다르면 숫자 없이 "계산검증완료 - 확인필요"만 보여 주고
- *   차이는 개발자용 기록(recordVerificationMismatch)으로 남긴다. 옆에 '서버에 저장된 내 자료 삭제' 버튼.
+ *   차이는 개발자용 기록(recordVerificationMismatch)으로 남긴다. 옆에 '내 자료 전체 삭제' 버튼(서버 + 이 브라우저).
  * - 비교표·감사 로그 원문은 검증 모드(개발자용, ?verify=1)의 서버 교차검증 카드에서만 보인다.
  */
 export default function CalcVerificationLine({ jsResult, userName = '' }) {
@@ -32,7 +33,7 @@ export default function CalcVerificationLine({ jsResult, userName = '' }) {
     return () => { alive = false; };
   }, [runKey]);
 
-  // 서버에 저장된 내 자료 삭제 (한 번 더 눌러야 삭제되는 2단계 버튼)
+  // 내 자료 전체 삭제: 서버 + 이 브라우저 (한 번 더 눌러야 삭제되는 2단계 버튼)
   const [deleteState, setDeleteState] = useState('idle'); // idle | confirm | deleting | done | error
   const deleteServerData = async () => {
     if (deleteState !== 'confirm') { setDeleteState('confirm'); return; }
@@ -40,7 +41,11 @@ export default function CalcVerificationLine({ jsResult, userName = '' }) {
     try {
       await taxService.deleteMyServerData();
       try { localStorage.removeItem(SERVER_SESSION_KEY); } catch { /* ignore */ }
+      // 서버 자료와 함께 이 브라우저에 남은 내 자료(부양가족·PDF·공제 입력·진행 상태)도 지우고 처음 화면으로
+      wipeLocalTaxData(getActiveOwner() || 'guest');
+      try { sessionStorage.setItem('selftax_current_screen', 'main'); } catch { /* ignore */ }
       setDeleteState('done');
+      setTimeout(() => window.location.reload(), 900);
     } catch {
       setDeleteState('error');
     }
@@ -68,9 +73,9 @@ export default function CalcVerificationLine({ jsResult, userName = '' }) {
       >
         {deleteState === 'confirm' ? '한 번 더 누르면 삭제'
           : deleteState === 'deleting' ? '삭제 중...'
-          : deleteState === 'done' ? '서버 자료 삭제됨'
+          : deleteState === 'done' ? '삭제 완료 · 처음 화면으로'
           : deleteState === 'error' ? '삭제 실패 · 다시 시도'
-          : '서버에 저장된 내 자료 삭제'}
+          : '내 자료 전체 삭제'}
       </button>
     </div>
   );
