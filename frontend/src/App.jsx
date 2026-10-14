@@ -4,6 +4,7 @@ import IntroScreen from './components/godash/IntroScreen';
 import MainDashboard from './components/godash/MainDashboard';
 import DesignAlertModal from './components/DesignAlertModal';
 import BgmPlayer from './components/BgmPlayer';
+import StatusClock from './components/StatusClock';
 import {
   checkAndResetExpiredGuestSession,
   isGuestSessionActive,
@@ -25,6 +26,7 @@ import {
   removeUserTaxDataKey,
 } from './utils/userTaxStorage';
 import { discardGuestIdentity, GUEST_TOKEN_STORAGE_KEY } from './services/api';
+import { scrollAppToTop } from './utils/scrollTop';
 
 // 코드 분할 (Code Splitting): 페이지별 지연 로딩을 통한 초기 번들 크기 및 로딩 속도 최적화
 const FamilyPage = lazy(() => import('./pages/FamilyPage'));
@@ -330,9 +332,7 @@ export default function App() {
 
   // 화면 전환 시 브라우저 및 페이지 최상단으로 스크롤 이동
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: 'instant' });
-    document.documentElement.scrollTop = 0;
-    document.body.scrollTop = 0;
+    scrollAppToTop();
   }, [currentScreen]);
 
 
@@ -442,28 +442,23 @@ export default function App() {
       <div className={`w-full ${
         currentScreen === 'intro'
           ? 'sm:max-w-[1040px] xl:max-w-[1120px] min-h-screen sm:min-h-[720px] bg-white sm:rounded-[32px] shadow-2xl sm:ring-8 sm:ring-black/5'
-          : 'sm:max-w-[680px] lg:max-w-[768px] min-h-screen sm:min-h-[860px] bg-[#F6F7FB] sm:rounded-[36px] shadow-2xl sm:ring-8 sm:ring-black/5'
+          : 'sm:max-w-[680px] lg:max-w-[768px] h-[100dvh] sm:h-[calc(100dvh-3rem)] sm:min-h-[600px] bg-[#F6F7FB] sm:rounded-[36px] shadow-2xl sm:ring-8 sm:ring-black/5'
       } overflow-hidden relative flex flex-col transition-all`}>
+
+        {/* 전역 집중 배경음악(BGM) 컨트롤러: 프레임 안에 한 번만 마운트되어 화면 이동 중에도 끊김 없이 재생 */}
+        <BgmPlayer placement={currentScreen === 'intro' ? 'intro' : 'app'} />
 
         {/* 상단 모바일/태블릿 상태바 (내부 앱 화면에서만 노출, 인트로 화면에서는 웹 모달 디자인 적용) */}
         {currentScreen !== 'intro' && (
           <div className="w-full pt-2.5 px-6 pb-1 bg-white/90 backdrop-blur-xs flex items-center justify-between text-xs font-semibold text-slate-800 select-none border-b border-slate-100">
-            <span className="font-bold">15:42</span>
+            <StatusClock className="font-bold tabular-nums" />
             {/* Dynamic Island 펀치홀 */}
             <div className="w-22 h-5 rounded-full bg-black flex items-center justify-between px-2">
               <div className="w-2.5 h-2.5 rounded-full bg-[#E5484D]" />
               <div className="w-2.5 h-2.5 rounded-full bg-black" />
             </div>
-            <div className="flex items-center gap-1.5 text-[11px] font-bold">
-              <svg className="w-3.5 h-3.5 text-slate-700" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 3c-4.97 0-9 4.03-9 9 0 2.12.74 4.07 1.97 5.61L4.35 18.25A9.956 9.956 0 0 1 2 12C2 6.48 6.48 2 12 2s10 4.48 10 10c0 2.32-.8 4.45-2.14 6.15l-.62-.62A8.96 8.96 0 0 0 21 12c0-4.97-4.03-9-9-9z" />
-                <path d="M12 6a6 6 0 0 0-6 6c0 1.48.54 2.84 1.43 3.9l.71-.71A4.973 4.973 0 0 1 7 12c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.15-.39 2.22-1.05 3.07l.71.71A5.968 5.968 0 0 0 18 12a6 6 0 0 0-6-6z" />
-              </svg>
-              <span>5G</span>
-              <div className="px-1 py-0.2 rounded-sm bg-slate-200 text-[10px] font-mono text-slate-800 font-bold">
-                23
-              </div>
-            </div>
+            {/* 오른쪽 자리: BGM 버튼이 absolute로 놓이는 공간 (가운데 펀치홀 정렬 유지용 빈 칸) */}
+            <div className="w-[34px]" aria-hidden="true" />
           </div>
         )}
 
@@ -472,7 +467,7 @@ export default function App() {
           '연말정산자료입력'에서 순차적으로 넘어오든, 아래 6개 메뉴에서 바로 들어오든
           동일한 단일 페이지 컴포넌트가 렌더링됩니다.
         */}
-        <main className="flex-1 flex flex-col overflow-hidden" key={`${user?.id || 'guest'}_${guestSessionKey}`}>
+        <main id="app-scroll-container" className={`flex-1 min-h-0 flex flex-col ${currentScreen === 'intro' ? 'overflow-hidden' : 'overflow-y-auto overscroll-contain'}`} key={`${user?.id || 'guest'}_${guestSessionKey}`}>
           <Suspense fallback={<PageLoadingFallback />}>
             {/* 1. 메인 홈 화면 */}
           {currentScreen === 'main' && (
@@ -660,9 +655,7 @@ export default function App() {
               onPrev={() => setCurrentScreen('input_data')}
               onGoAiReport={(data) => {
                 setAiReportData(data);
-                window.scrollTo({ top: 0, behavior: 'instant' });
-                document.documentElement.scrollTop = 0;
-                document.body.scrollTop = 0;
+                scrollAppToTop();
                 setCurrentScreen('ai_report');
               }}
               onNavigateStep={navigateToStep}
@@ -755,8 +748,6 @@ export default function App() {
         onClose={() => setGlobalAlert((prev) => ({ ...prev, isOpen: false }))}
       />
 
-      {/* 전역 집중 배경음악(BGM) 컨트롤러 */}
-      <BgmPlayer />
     </div>
   );
 }

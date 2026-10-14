@@ -148,7 +148,7 @@ export default function MainDashboard({
   ];
 
   return (
-    <div className="w-full min-h-screen bg-[#F6F7FB] text-[#1E293B] flex flex-col justify-between pb-6 select-none font-sans">
+    <div className="w-full flex-1 bg-[#F6F7FB] text-[#1E293B] flex flex-col justify-between select-none font-sans">
       {/* 1. 상단 헤더: 2025년 연말정산 타이틀 + 우측 프로필/로그아웃/로그인/정산봄 */}
       <div className="w-full px-4 sm:px-5 pt-3.5 pb-2.5 flex items-center justify-between border-b border-slate-200/60 bg-white/70 backdrop-blur-xs">
         {/* 제목만 (배로가기 삭제) */}
@@ -323,7 +323,7 @@ export default function MainDashboard({
       </div>
 
       {/* 5. 하단 3대 서브 메뉴 / 퀵 링크 바 (절세꿀팁, 구비서류, 이용가이드) */}
-      <div className="px-5 pt-3 mt-2 border-t border-slate-200/80 bg-white/70 backdrop-blur-sm">
+      <div className="sticky bottom-0 z-20 px-5 pt-3 pb-4 mt-2 border-t border-slate-200/80 bg-white/90 backdrop-blur-sm">
         <div className="grid grid-cols-3 gap-2 text-center">
           {subMenus.map((sub) => (
             <button

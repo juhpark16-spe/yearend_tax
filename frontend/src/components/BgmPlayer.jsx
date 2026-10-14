@@ -7,7 +7,8 @@ import React, { useState, useEffect, useRef } from 'react';
  * - 재생/일시정지 토글, 볼륨 조절, 세련된 이퀄라이저 애니메이션
  * - 사용자 재생 설정(on/off, 볼륨) localStorage 영속화
  */
-export default function BgmPlayer() {
+export default function BgmPlayer({ placement = 'app' }) {
+  const isIntro = placement === 'intro';
   const audioRef = useRef(null);
 
   // 음원 재생 상태 (기본값: false - 브라우저 자동재생 정책 및 사용자 편의 준수)
@@ -78,13 +79,19 @@ export default function BgmPlayer() {
         preload="auto"
       />
 
-      {/* 화면 우측 상단 플로팅 미니 플레이어 캡슐 */}
+      {/* 앱 프레임 안 고정 위치 미니 플레이어
+          - 로그인(intro): 넓은 화면은 오른쪽 보라색 패널의 우측 상단, 좁은 화면은 프레임 우측 하단
+          - 앱 내부 화면: 상단 상태바 오른쪽 끝 */}
       <div
-        className="fixed bottom-6 right-5 z-50 flex items-center gap-2 select-none"
+        className={`absolute z-50 flex items-center gap-2 select-none ${
+          isIntro ? 'bottom-5 right-5 lg:bottom-auto lg:top-6 lg:right-6' : 'top-[9px] right-5'
+        }`}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
       >
-        <div className="flex items-center bg-white/95 backdrop-blur-md border border-slate-200/90 shadow-md rounded-full px-3 py-1.5 transition-all duration-200 hover:shadow-lg">
+        <div className={`flex items-center bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-full transition-all duration-200 ${
+          isIntro ? 'shadow-md hover:shadow-lg px-3 py-1.5' : 'shadow-xs px-2 py-0.5'
+        }`}>
           {/* 재생/정지 토글 버튼 */}
           <button
             type="button"
@@ -113,7 +120,7 @@ export default function BgmPlayer() {
               />
             </div>
 
-            <span className="text-[11.5px] tracking-tight">
+            <span className={`${isIntro ? 'text-[11.5px]' : 'text-[10px]'} tracking-tight`}>
               {isPlaying ? 'BGM ON' : 'BGM OFF'}
             </span>
           </button>

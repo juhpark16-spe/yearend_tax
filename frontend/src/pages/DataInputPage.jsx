@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { scrollAppToTop } from '../utils/scrollTop';
 import { useAuth } from '../context/AuthContext';
 import TaxStepProgressBar from '../components/TaxStepProgressBar';
 import HomeButton from '../components/HomeButton';
@@ -669,6 +670,8 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
 
   // 뷰 모드: 'list' | 'card_view' | 'card_edit' | 'card_add' | 'donation_view' | 'donation_edit' | 'donation_add' | 'insurance_view' | 'insurance_edit' | 'insurance_add' | 'edu_view' | 'edu_edit' | 'edu_add' | 'medical_view' | 'medical_edit' | 'medical_add' | 'rent_view' | 'rent_edit' | 'rent_checklist' | 'deduction_guide'
   const [viewMode, setViewMode] = useState('list');
+  // 화면 내 보기 전환(목록 → 추가/수정 등) 시에도 최상단부터 보이도록
+  useEffect(() => { scrollAppToTop(); }, [viewMode]);
 
   // 공제 가이드 상세 페이지 관련 상태 (첨부 이미지 1, 2, 4 스펙 100% 매칭)
   const [guideCategory, setGuideCategory] = useState('education'); // 'education' | 'medical' | 'rent' | 'insurance' | 'donation' | 'card'
@@ -4107,7 +4110,7 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
   ]);
 
   return (
-    <div className="w-full min-h-screen bg-white flex flex-col justify-between font-sans select-none relative">
+    <div className="w-full flex-1 bg-white flex flex-col justify-between font-sans select-none relative">
       {/* ========================================================================= */}
       {/* 1. 공제자료 입력 메인 목록 화면 (첨부 이미지 1 & 2 스펙 100% 일치)            */}
       {/* ========================================================================= */}
@@ -4398,7 +4401,7 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
           </div>
 
           {/* 하단 고정 액션 바 (이전 / 작성완료 동일 크기) */}
-          <div className="p-4 bg-white border-t border-slate-200 flex items-center justify-between gap-3">
+          <div className="sticky bottom-0 z-20 p-4 bg-white border-t border-slate-200 flex items-center justify-between gap-3">
             <button
               type="button"
               onClick={onPrev}
@@ -4679,7 +4682,7 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
           </div>
 
           {/* 하단 고정 액션 바: [ 목록보기 ] [ 자료 수정/추가 ] (동일한 크기 flex-1 적용) */}
-          <div className="p-4 bg-white border-t border-slate-100 flex items-center gap-3">
+          <div className="sticky bottom-0 z-20 p-4 bg-white border-t border-slate-100 flex items-center gap-3">
             <button
               type="button"
               onClick={() => setViewMode('list')}
@@ -5019,7 +5022,7 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
           </div>
 
           {/* 하단 고정 액션 바: [ 수정 ] 또는 [ 저장 ] (사용자 요청 반영) */}
-          <div className="p-4 bg-white border-t border-slate-100">
+          <div className="sticky bottom-0 z-20 p-4 bg-white border-t border-slate-100">
             <button
               type="submit"
               className="w-full py-3.5 rounded-xl bg-[#4F46E5] hover:bg-[#4338CA] text-white font-bold text-sm tracking-wide shadow-xs transition cursor-pointer text-center"
@@ -5317,7 +5320,7 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
           </div>
 
           {/* 하단 고정 액션 바: [ 목록보기 ] [ 자료 수정/추가 ] (동일한 50:50 크기 flex-1 적용) */}
-          <div className="p-4 bg-white border-t border-slate-100 flex items-center gap-3">
+          <div className="sticky bottom-0 z-20 p-4 bg-white border-t border-slate-100 flex items-center gap-3">
             <button
               type="button"
               onClick={() => setViewMode('list')}
@@ -5635,7 +5638,7 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
           </div>
 
           {/* 하단 고정 액션 바: [ 수정 ] 또는 [ 저장 ] */}
-          <div className="p-4 bg-white border-t border-slate-100">
+          <div className="sticky bottom-0 z-20 p-4 bg-white border-t border-slate-100">
             <button
               type="submit"
               className="w-full py-3.5 rounded-xl bg-[#4F46E5] hover:bg-[#4338CA] text-white font-bold text-sm tracking-wide shadow-xs transition cursor-pointer text-center"
@@ -6033,7 +6036,7 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
           </div>
 
           {/* 하단 고정 액션 바: [ 목록보기 ] [ 자료 수정/추가 ] (동일한 50:50 크기 flex-1 적용) */}
-          <div className="p-4 bg-white border-t border-slate-100 flex items-center gap-3">
+          <div className="sticky bottom-0 z-20 p-4 bg-white border-t border-slate-100 flex items-center gap-3">
             <button
               type="button"
               onClick={() => setViewMode('list')}
@@ -6471,7 +6474,7 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
           </div>
 
           {/* 하단 고정 액션 바: [ 저장 ] 또는 [ 수정 ] (첨부 이미지 3 & 4 스펙) */}
-          <div className="p-4 bg-white border-t border-slate-100">
+          <div className="sticky bottom-0 z-20 p-4 bg-white border-t border-slate-100">
             <button
               type="submit"
               className="w-full py-3.5 rounded-xl bg-[#4F46E5] hover:bg-[#4338CA] text-white font-bold text-sm tracking-wide shadow-xs transition cursor-pointer text-center"
@@ -7459,7 +7462,7 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
           </div>
 
           {/* 하단 고정 액션 바: [ 목록보기 ] [ 자료 수정/추가 ] (동일한 크기 flex-1 적용) */}
-          <div className="p-4 bg-white border-t border-slate-100 flex items-center gap-3">
+          <div className="sticky bottom-0 z-20 p-4 bg-white border-t border-slate-100 flex items-center gap-3">
             <button
               type="button"
               onClick={() => setViewMode('list')}
@@ -8306,7 +8309,7 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
           </div>
 
           {/* 하단 고정 액션 바: [ 목록보기 ] [ 자료 수정/추가 ] (동일한 크기 flex-1 적용) */}
-          <div className="p-4 bg-white border-t border-slate-100 flex items-center gap-3">
+          <div className="sticky bottom-0 z-20 p-4 bg-white border-t border-slate-100 flex items-center gap-3">
             <button
               type="button"
               onClick={() => setViewMode('list')}
@@ -8795,7 +8798,7 @@ export default function DataInputPage({ onGoHome, onNext, onPrev, onNavigateStep
           </div>
 
           {/* 하단 고정 설문 & 저장 버튼 섹션 (이미지 2 & 5) */}
-          <div className="p-4 bg-white border-t border-slate-200 space-y-3">
+          <div className="sticky bottom-0 z-20 p-4 bg-white border-t border-slate-200 space-y-3">
             {/* 라디오 질문 박스 */}
             <div className="space-y-1">
               <div className="flex items-center justify-between">

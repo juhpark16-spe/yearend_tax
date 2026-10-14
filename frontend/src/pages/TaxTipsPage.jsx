@@ -271,7 +271,7 @@ export default function TaxTipsPage({ onGoHome, onNavigate, onPrev }) {
   }, [tipsList, activeCategory, searchTerm]);
 
   return (
-    <div className="w-full min-h-screen bg-[#F6F7FB] flex flex-col justify-between font-sans select-none pb-10">
+    <div className="w-full flex-1 bg-[#F6F7FB] flex flex-col justify-between font-sans select-none pb-10">
       {/* 1. 상단 고정 헤더: ← 뒤로가기 + 타이틀 + 홈화면 버튼 */}
       <div className="w-full px-5 pt-3.5 pb-2.5 flex items-center justify-between border-b border-slate-200/80 bg-white sticky top-0 z-30 shadow-2xs">
         <div className="flex items-center gap-2.5">

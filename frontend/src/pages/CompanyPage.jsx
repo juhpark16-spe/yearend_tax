@@ -42,7 +42,7 @@ export default function CompanyPage({ onGoHome, onPrev }) {
   ];
 
   return (
-    <div className="w-full min-h-screen bg-[#F8FAFC] flex flex-col font-sans select-none animate-in fade-in duration-200">
+    <div className="w-full flex-1 bg-[#F8FAFC] flex flex-col font-sans select-none animate-in fade-in duration-200">
 
       {/* ── 상단 헤더 ── */}
       <div className="w-full px-5 pt-3.5 pb-2.5 flex items-center justify-between border-b border-slate-100 bg-white sticky top-0 z-30 shadow-2xs">
@@ -240,7 +240,7 @@ export default function CompanyPage({ onGoHome, onPrev }) {
       </div>
 
       {/* ── 하단 버튼 ── */}
-      <div className="px-5 py-4 bg-white border-t border-slate-100">
+      <div className="sticky bottom-0 z-20 px-5 py-4 bg-white border-t border-slate-100">
         <button
           type="button"
           onClick={onGoHome}

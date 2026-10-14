@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { scrollAppToTop } from '../utils/scrollTop';
 import TaxStepProgressBar from '../components/TaxStepProgressBar';
 import FamilyValidationCard from '../components/FamilyValidationCard';
 import HomeButton from '../components/HomeButton';
@@ -20,6 +21,8 @@ export default function FamilyPage({ onGoHome, onNext, onPrev, onNavigateStep, u
   const loginName = (profile?.name || userProfile?.name || '홍길동').replace(/\s*\(Google\)/g, '').trim() || '홍길동';
   // 모드: 'view' (이미지 4) | 'edit_list' (이미지 3) | 'edit_form' (이미지 5)
   const [viewMode, setViewMode] = useState('view');
+  // 화면 내 보기 전환(목록 → 추가/수정 등) 시에도 최상단부터 보이도록
+  useEffect(() => { scrollAppToTop(); }, [viewMode]);
   const [editingTarget, setEditingTarget] = useState(null);
   const [showProofNotice, setShowProofNotice] = useState(false);
   const [showChangeHistory, setShowChangeHistory] = useState(false);
@@ -524,7 +527,7 @@ export default function FamilyPage({ onGoHome, onNext, onPrev, onNavigateStep, u
   };
 
   return (
-    <div className="w-full min-h-screen bg-white flex flex-col justify-between font-sans select-none">
+    <div className="w-full flex-1 bg-white flex flex-col justify-between font-sans select-none">
       {/* ========================================================================= */}
       {/* MODE 1: 이미지 4 - 연말정산자료입력 부양가족 기본 뷰                      */}
       {/* ========================================================================= */}
@@ -636,7 +639,7 @@ export default function FamilyPage({ onGoHome, onNext, onPrev, onNavigateStep, u
           </div>
 
           {/* 하단 고정 액션 바: 이전 / 저장·다음 */}
-          <div className="p-4 bg-white border-t border-slate-200 flex items-center justify-between gap-3 relative z-10">
+          <div className="sticky bottom-0 z-20 p-4 bg-white border-t border-slate-200 flex items-center justify-between gap-3">
             <button
               onClick={onPrev || onGoHome}
               className="flex-1 py-3 px-4 rounded-xl border border-slate-300 text-slate-700 text-xs font-bold hover:bg-slate-50 transition cursor-pointer text-center"
@@ -779,7 +782,7 @@ export default function FamilyPage({ onGoHome, onNext, onPrev, onNavigateStep, u
           </div>
 
           {/* 하단 고정 완료 버튼 */}
-          <div className="p-4 bg-white border-t border-slate-200">
+          <div className="sticky bottom-0 z-20 p-4 bg-white border-t border-slate-200">
             <button
               type="button"
               onClick={() => setViewMode('view')}
@@ -1091,7 +1094,7 @@ export default function FamilyPage({ onGoHome, onNext, onPrev, onNavigateStep, u
           </div>
 
           {/* 하단 저장 버튼 (이미지 5) */}
-          <div className="p-4 bg-white border-t border-slate-200">
+          <div className="sticky bottom-0 z-20 p-4 bg-white border-t border-slate-200">
             <button
               type="submit"
               className="w-full py-3.5 rounded-xl bg-[#4F46E5] text-white font-bold text-xs hover:bg-[#4338CA] transition shadow-xs cursor-pointer text-center"

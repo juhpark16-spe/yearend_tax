@@ -620,7 +620,7 @@ export default function HometaxPage({
   ];
 
   return (
-    <div className="w-full min-h-screen bg-white flex flex-col justify-between font-sans select-none">
+    <div className="w-full flex-1 bg-white flex flex-col justify-between font-sans select-none">
       {/* 1. 상단 헤더: ← 연말정산자료입력 + 캡슐형 홈화면 버튼 */}
       <div className="w-full px-5 pt-3.5 pb-2.5 flex items-center justify-between border-b border-slate-100 bg-white sticky top-0 z-20">
         <div className="flex items-center gap-2">
@@ -987,7 +987,7 @@ export default function HometaxPage({
       </div>
 
       {/* 3. 하단 네비게이션 액션 바 */}
-      <div className="p-4 bg-white border-t border-slate-200 flex items-center justify-between gap-3">
+      <div className="sticky bottom-0 z-20 p-4 bg-white border-t border-slate-200 flex items-center justify-between gap-3">
         <button
           type="button"
           onClick={onPrev}

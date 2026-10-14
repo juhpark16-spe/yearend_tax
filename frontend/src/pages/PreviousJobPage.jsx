@@ -311,7 +311,7 @@ export default function PreviousJobPage({
   const grandTotalPrevTax = totalPrevTax + totalPrevLocalTax;
 
   return (
-    <div className="w-full min-h-screen bg-white flex flex-col justify-between font-sans select-none">
+    <div className="w-full flex-1 bg-white flex flex-col justify-between font-sans select-none">
       {/* 1. 상단 헤더: ← 종전근무지 근로소득원천징수영수증 + 홈 */}
       <div className="w-full px-5 pt-3.5 pb-2.5 flex items-center justify-between border-b border-slate-100 bg-white sticky top-0 z-20">
         <div className="flex items-center gap-2 min-w-0">
@@ -634,7 +634,7 @@ export default function PreviousJobPage({
       </div>
 
       {/* 5. 하단 고정 네비게이션 액션 바 */}
-      <div className="p-4 bg-white border-t border-slate-200 flex items-center justify-between gap-3">
+      <div className="sticky bottom-0 z-20 p-4 bg-white border-t border-slate-200 flex items-center justify-between gap-3">
         <button
           onClick={onPrev || onGoHome}
           className="flex-1 py-3 px-4 rounded-xl border border-slate-300 text-slate-700 text-xs font-bold hover:bg-slate-50 transition cursor-pointer text-center"

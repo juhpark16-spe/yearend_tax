@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { scrollAppToTop } from '../utils/scrollTop';
 import { useAuth } from '../context/AuthContext';
 import HomeButton from '../components/HomeButton';
 import { calculateSettlementTax } from '../utils/taxCalculator';
@@ -139,9 +140,7 @@ export default function AiReportPage({
 
   // 화면 마운트 및 뷰 전환 시 항상 상단부터 노출
   const scrollToTop = () => {
-    window.scrollTo({ top: 0, behavior: 'instant' });
-    document.documentElement.scrollTop = 0;
-    document.body.scrollTop = 0;
+    scrollAppToTop();
 
     if (viewMode === 'detail') {
       const el = document.getElementById('detail-scroll-container');
@@ -286,7 +285,7 @@ export default function AiReportPage({
           if (prev >= 100) {
             clearInterval(interval);
             setTimeout(() => {
-              window.scrollTo({ top: 0, behavior: 'instant' });
+              scrollAppToTop();
               setViewMode('detail');
             }, 300);
             return 100;
@@ -333,7 +332,7 @@ export default function AiReportPage({
   ];
 
   return (
-    <div className="w-full min-h-screen bg-slate-50 flex flex-col justify-between font-sans select-none animate-in fade-in duration-200">
+    <div className="w-full flex-1 bg-slate-50 flex flex-col justify-between font-sans select-none animate-in fade-in duration-200">
       {/* ========================================================================= */}
       {/* VIEW 1: AI 결과리포트 실시간 작성 중 화면 ('generating')                    */}
       {/* ========================================================================= */}
@@ -447,7 +446,7 @@ export default function AiReportPage({
             <button
               type="button"
               onClick={() => {
-                window.scrollTo({ top: 0, behavior: 'instant' });
+                scrollAppToTop();
                 setViewMode('detail');
               }}
               className="flex-1 py-3 px-4 rounded-xl bg-[#4F46E5] hover:bg-[#4338CA] text-white text-xs font-bold transition shadow-xs cursor-pointer text-center flex items-center justify-center gap-1.5"
@@ -1329,7 +1328,7 @@ export default function AiReportPage({
 
             <div
               onClick={() => {
-                window.scrollTo({ top: 0, behavior: 'instant' });
+                scrollAppToTop();
                 setViewMode('forecast');
               }}
               className="w-full bg-gradient-to-r from-rose-50/80 via-white to-indigo-50/60 rounded-2xl p-4 border border-rose-100/90 shadow-2xs flex items-center justify-between cursor-pointer hover:shadow-md hover:border-indigo-300 transition group relative overflow-hidden"
@@ -1365,7 +1364,7 @@ export default function AiReportPage({
           </div>
 
           {/* 하단 고정 액션 바 */}
-          <div className="p-4 bg-white border-t border-slate-200 flex items-center justify-between gap-3 shadow-md">
+          <div className="sticky bottom-0 z-20 p-4 bg-white border-t border-slate-200 flex items-center justify-between gap-3 shadow-md">
             <button
               type="button"
               onClick={onGoBack}

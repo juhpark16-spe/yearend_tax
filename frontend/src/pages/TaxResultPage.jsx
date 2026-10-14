@@ -103,7 +103,7 @@ export default function TaxResultPage({
   }, [effectiveUserName, taxYear]);
 
   return (
-    <div className="w-full min-h-screen bg-white flex flex-col justify-between font-sans select-none animate-in fade-in duration-200">
+    <div className="w-full flex-1 bg-white flex flex-col justify-between font-sans select-none animate-in fade-in duration-200">
       {/* ========================================================================= */}
       {/* 1. 상단 헤더: ← 연말정산 예상세액 조회 + 홈버튼                             */}
       {/* ========================================================================= */}

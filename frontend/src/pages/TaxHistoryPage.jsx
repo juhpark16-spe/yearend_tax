@@ -510,7 +510,7 @@ export default function TaxHistoryPage({ onGoHome, onPrev, onNavigateStep, userN
   };
 
   return (
-    <div className="w-full min-h-screen bg-[#F6F7FB] flex flex-col font-sans select-none pb-10">
+    <div className="w-full flex-1 bg-[#F6F7FB] flex flex-col font-sans select-none pb-10">
       
       {/* ================================================================= */}
       {/* 1. 상단 헤더: 뒤로가기 + 타이틀 + 홈화면 버튼                         */}

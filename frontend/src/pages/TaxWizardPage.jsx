@@ -29,7 +29,7 @@ export default function TaxWizardPage({ initialStep = 1, onGoHome }) {
   const prevStep = () => setCurrentStep((prev) => Math.max(prev - 1, 1));
 
   return (
-    <div className="w-full min-h-screen bg-[#F0F4FA] flex flex-col justify-between">
+    <div className="w-full flex-1 bg-[#F0F4FA] flex flex-col justify-between">
       {/* 1. 상단 헤더: 왼쪽 위에 홈화면 표기 */}
       <SubPageHeader
         title={`연말정산 자료입력 (${currentStep}/${STEPS.length})`}
@@ -187,7 +187,7 @@ export default function TaxWizardPage({ initialStep = 1, onGoHome }) {
       </div>
 
       {/* 3. 하단 네비게이션 액션 바 */}
-      <div className="p-4 bg-white border-t border-slate-200 flex items-center justify-between gap-3">
+      <div className="sticky bottom-0 z-20 p-4 bg-white border-t border-slate-200 flex items-center justify-between gap-3">
         {currentStep > 1 ? (
           <button
             onClick={prevStep}
