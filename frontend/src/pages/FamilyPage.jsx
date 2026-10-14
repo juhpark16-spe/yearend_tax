@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import TaxStepProgressBar from '../components/TaxStepProgressBar';
 import FamilyValidationCard from '../components/FamilyValidationCard';
 import HomeButton from '../components/HomeButton';
@@ -60,12 +60,18 @@ export default function FamilyPage({ onGoHome, onNext, onPrev, onNavigateStep, u
   });
 
   // familyList 변경 시 암호화 및 rrn 마스킹(YYMMDD-*******) 적용하여 localStorage 자동 동기화
+  // 화면을 처음 열 때의 목록(자동 생성된 '본인' 포함)은 완료로 치지 않고, 실제로 바뀌었을 때만 onDataChange 호출
+  const lastSyncedFamilyRef = useRef(JSON.stringify(familyList));
   useEffect(() => {
     try {
       if (familyList && familyList.length > 0) {
         setSecureItem('selftax_family_list', familyList);
-        if (typeof onDataChange === 'function') {
-          onDataChange();
+        const snapshot = JSON.stringify(familyList);
+        if (snapshot !== lastSyncedFamilyRef.current) {
+          lastSyncedFamilyRef.current = snapshot;
+          if (typeof onDataChange === 'function') {
+            onDataChange();
+          }
         }
       }
     } catch (e) {

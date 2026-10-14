@@ -120,6 +120,22 @@ export function removeUserTaxDataKey(userId, key) {
 }
 
 /**
+ * 부양가족 메뉴에 실제 입력 자료가 있는지 검증하는 헬퍼
+ * - 본인/가족 중 주민등록번호가 입력된 사람이 있거나, 본인 외 부양가족이 1명 이상 추가되어 있으면 true
+ * - 화면을 열 때 자동으로 만들어지는 빈 '본인' 한 줄만 있으면 false
+ */
+export function checkHasFamilyData() {
+  try {
+    const list = getSecureItem('selftax_family_list');
+    if (!Array.isArray(list) || list.length === 0) return false;
+    if (list.some((m) => !(m.isSelf || m.relation === '본인'))) return true;
+    return list.some((m) => String(m.rrn || '').replace(/[^0-9]/g, '').length >= 6);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 공제자료 입력 페이지(자료 입력 메뉴)에 유의미한 자료가 존재하는지 검증하는 헬퍼
  * - 국세청 간소화 데이터(hometax_extracted_data)가 존재하거나
  * - 수기 등록된 기타영수증 자료(12개 카테고리)가 1건이라도 존재하면 true 반환

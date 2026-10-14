@@ -21,6 +21,7 @@ import {
   clearActiveTaxData,
   checkHasInputData,
   checkHasWithholdingData,
+  checkHasFamilyData,
   removeUserTaxDataKey,
 } from './utils/userTaxStorage';
 import { discardGuestIdentity, GUEST_TOKEN_STORAGE_KEY } from './services/api';
@@ -167,6 +168,13 @@ export default function App() {
       setTaxProgress(restored.taxProgress || 1);
       const menus = new Set(restored.completedMenus || []);
 
+      // 부양가족 실제 입력 여부와 completedMenus 동기화 (빈 '본인' 한 줄만 있으면 미완료)
+      if (checkHasFamilyData()) {
+        menus.add('family');
+      } else {
+        menus.delete('family');
+      }
+
       // 근로소득원천징수영수증 업로드 여부와 completedMenus 동기화
       if (checkHasWithholdingData(effectiveId)) {
         menus.add('withholding');
@@ -211,6 +219,13 @@ export default function App() {
       setTaxProgress(saved ? parseInt(saved, 10) : 1);
       const savedMenus = localStorage.getItem(`completedMenus_${effectiveId}`);
       const menus = savedMenus ? new Set(JSON.parse(savedMenus)) : new Set();
+
+      // 부양가족 실제 입력 여부와 completedMenus 동기화 (빈 '본인' 한 줄만 있으면 미완료)
+      if (checkHasFamilyData()) {
+        menus.add('family');
+      } else {
+        menus.delete('family');
+      }
 
       // 근로소득원천징수영수증 업로드 여부와 completedMenus 동기화
       if (checkHasWithholdingData(effectiveId)) {
@@ -355,7 +370,9 @@ export default function App() {
     const restored = loadUserData(effectiveId);
     if (restored && restored.hasData) {
       setTaxProgress(restored.taxProgress || 1);
-      setCompletedMenus(new Set(restored.completedMenus || []));
+      const guestMenus = new Set(restored.completedMenus || []);
+      if (checkHasFamilyData()) guestMenus.add('family'); else guestMenus.delete('family');
+      setCompletedMenus(guestMenus);
       if (restored.hometaxData) setHometaxExtractedData(restored.hometaxData);
       if (restored.aiReportData) setAiReportData(restored.aiReportData);
     } else {
